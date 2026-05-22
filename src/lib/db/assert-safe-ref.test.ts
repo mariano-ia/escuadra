@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { assertSafeRef } from "./assert-safe-ref";
+import { assertSafeRef, ESCUADRA_PROJECT_REF } from "./assert-safe-ref";
 
-describe("assertSafeRef", () => {
+describe("assertSafeRef (allowlist estricto)", () => {
   beforeEach(() => {
     delete process.env.SUPABASE_PROJECT_REF;
-  });
-
-  it("lanza con el ref prohibido (prod de otro producto)", () => {
-    expect(() => assertSafeRef("luutdozbhinfiogugjbv")).toThrow(/PROHIBIDO/);
   });
 
   it("lanza con ref vacío", () => {
@@ -15,13 +11,21 @@ describe("assertSafeRef", () => {
     expect(() => assertSafeRef("")).toThrow();
   });
 
-  it("lanza si no coincide con el proyecto registrado", () => {
-    process.env.SUPABASE_PROJECT_REF = "escuadrarefabc123";
-    expect(() => assertSafeRef("otroproyecto")).toThrow(/no coincide/);
+  it("bloquea el proyecto Argo (prod de otro producto)", () => {
+    expect(() => assertSafeRef("luutdozbhinfiogugjbv")).toThrow(/PROHIBIDO/);
   });
 
-  it("pasa con el ref registrado de Escuadra", () => {
-    process.env.SUPABASE_PROJECT_REF = "escuadrarefabc123";
-    expect(() => assertSafeRef("escuadrarefabc123")).not.toThrow();
+  it("bloquea todos los proyectos preexistentes", () => {
+    for (const ref of ["ajqjicwuqbxpgkrrnryn", "pzoiexlgzsbgjftzblgo", "cdklaxvxngmldpdiihgo"]) {
+      expect(() => assertSafeRef(ref)).toThrow(/PROHIBIDO/);
+    }
+  });
+
+  it("bloquea cualquier ref desconocido (no es el de Escuadra)", () => {
+    expect(() => assertSafeRef("algunotroproyecto")).toThrow(/solo se permite/);
+  });
+
+  it("permite SOLO el proyecto de Escuadra", () => {
+    expect(() => assertSafeRef(ESCUADRA_PROJECT_REF)).not.toThrow();
   });
 });

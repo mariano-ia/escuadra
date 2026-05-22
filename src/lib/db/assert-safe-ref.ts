@@ -1,25 +1,33 @@
 /**
- * Guarda de seguridad multi-tenant (allowlist, no denylist).
+ * Guarda de seguridad multi-tenant — ALLOWLIST ESTRICTO.
  *
- * Nunca operar sobre un proyecto Supabase que no sea el de Escuadra. Lanza salvo que el `ref`
- * sea EXACTAMENTE el proyecto registrado en `SUPABASE_PROJECT_REF`. El ref `luutdozbhinfiogugjbv`
- * es la prod productiva de OTRO producto — jamás tocarlo.
+ * SOLO el proyecto Supabase de Escuadra (`ehvsfintmkoclqehqwdv`) puede tocarse.
+ * TODOS los proyectos preexistentes en la org "Yacaré" están PROHIBIDOS (regla explícita del
+ * usuario): jamás escribir/migrar/ejecutar SQL en ellos.
  *
- * Ver: .claude/skills/escuadra-tenant-isolation.
+ * Llamar antes de toda operación de escritura sobre Supabase. Ver skill escuadra-tenant-isolation.
  */
-const FORBIDDEN_REFS: readonly string[] = ["luutdozbhinfiogugjbv"];
+export const ESCUADRA_PROJECT_REF = "ehvsfintmkoclqehqwdv";
+
+// Proyectos preexistentes — JAMÁS tocar (defensa explícita, además del allowlist):
+const FORBIDDEN_REFS: readonly string[] = [
+  "luutdozbhinfiogugjbv", // Argo (prod de otro producto)
+  "ajqjicwuqbxpgkrrnryn", // elpantano
+  "pzoiexlgzsbgjftzblgo", // argo-smo
+  "cdklaxvxngmldpdiihgo", // leads-scrapper
+];
 
 export function assertSafeRef(ref: string | undefined | null): asserts ref is string {
   if (!ref) {
     throw new Error("assertSafeRef: ref vacío — se requiere el ref explícito del proyecto Escuadra.");
   }
   if (FORBIDDEN_REFS.includes(ref)) {
-    throw new Error(`assertSafeRef: ref PROHIBIDO (${ref}). Es la prod de otro producto. Abortado.`);
+    throw new Error(`assertSafeRef: ref PROHIBIDO (${ref}) — es un proyecto preexistente. Abortado.`);
   }
-  const expected = process.env.SUPABASE_PROJECT_REF;
-  if (expected && ref !== expected) {
+  const allowed = process.env.SUPABASE_PROJECT_REF || ESCUADRA_PROJECT_REF;
+  if (ref !== allowed) {
     throw new Error(
-      `assertSafeRef: ref "${ref}" no coincide con el proyecto registrado "${expected}". Abortado.`,
+      `assertSafeRef: solo se permite el proyecto de Escuadra (${allowed}); recibido "${ref}". Abortado.`,
     );
   }
 }
