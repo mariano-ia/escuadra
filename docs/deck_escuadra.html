@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escuadra · El orden de tu obra</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================== TOKENS ==============================
+   Paleta monocroma cálida (piedra). Sin color de acento: el lenguaje
+   visual es la LÍNEA (graduaciones de la escuadra, cotas, hairlines).  */
+:root{
+  --bg:#ffffff;
+  --paper:#f6f5f1;        /* piedra muy clara, para paneles sutiles */
+  --ink:#16150f;          /* casi negro, levemente cálido */
+  --grey:#6f6e66;
+  --grey-soft:#9a988f;
+  --grey-light:#c6c4ba;
+  --rule:#e4e2da;         /* hairline */
+  --rule-soft:#efeee8;
+  --display:'Archivo', system-ui, sans-serif;
+  --body:'Inter', system-ui, sans-serif;
+  --pad:clamp(28px,6vw,128px);
+  --tick:repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 8px);
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:var(--body);
+  background:var(--bg);
+  color:var(--ink);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* ====================== FONDO: retícula de plano ==================== */
+.bg-grid{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(var(--rule-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-soft) 1px, transparent 1px);
+  background-size:60px 60px;
+  -webkit-mask-image:radial-gradient(circle at 50% 42%, #000 0%, transparent 88%);
+          mask-image:radial-gradient(circle at 50% 42%, #000 0%, transparent 88%);
+  opacity:.55;
+}
+/* Marcas de recorte (esquinas de la escuadra) */
+.crop{position:fixed;width:20px;height:20px;z-index:30;pointer-events:none;opacity:.4}
+.crop::before,.crop::after{content:'';position:absolute;background:var(--grey-light)}
+.crop::before{width:100%;height:1px;top:0}
+.crop::after{height:100%;width:1px;left:0}
+.crop.tl{top:24px;left:24px}
+.crop.tr{top:24px;right:24px;transform:scaleX(-1)}
+.crop.bl{bottom:24px;left:24px;transform:scaleY(-1)}
+.crop.br{bottom:24px;right:24px;transform:scale(-1)}
+
+/* ============================ DECK / SLIDES ========================= */
+.deck{
+  position:relative;z-index:1;
+  height:100vh;overflow-y:scroll;
+  scroll-snap-type:y mandatory;scroll-behavior:smooth;
+}
+.deck::-webkit-scrollbar{width:0}
+.slide{
+  position:relative;min-height:100vh;
+  scroll-snap-align:start;scroll-snap-stop:always;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:clamp(80px,10vh,128px) var(--pad);
+}
+.slide__inner{width:100%;max-width:1140px;margin:0 auto}
+
+/* etiqueta de lámina con regla de graduaciones (esquina sup. izq.) */
+.tag{
+  position:absolute;top:clamp(36px,5.5vh,66px);left:var(--pad);
+  font-family:var(--display);font-size:.66rem;font-weight:500;
+  letter-spacing:.26em;text-transform:uppercase;color:var(--grey-light);
+  display:flex;align-items:flex-end;gap:14px;
+}
+.tag::before{content:'';width:34px;height:9px;color:var(--grey-light);
+  background:var(--tick);opacity:.9}
+
+/* ============================= TIPOGRAFÍA ==========================
+   Pesos livianos, escala contenida, mucho aire (estilo estudio).      */
+.eyebrow{
+  font-family:var(--display);font-size:.74rem;font-weight:500;
+  letter-spacing:.24em;text-transform:uppercase;color:var(--grey);
+  display:inline-flex;align-items:flex-end;gap:14px;margin-bottom:28px;
+}
+.eyebrow::before{content:'';width:42px;height:10px;color:var(--grey-soft);
+  background:var(--tick)}
+
+.display{
+  font-family:var(--display);font-weight:500;
+  font-size:clamp(2.1rem,5.6vw,4.4rem);
+  line-height:1.06;letter-spacing:-.02em;text-wrap:balance;
+}
+.display--lg{font-size:clamp(2.5rem,7vw,5.4rem)}
+.display em{font-style:normal;color:var(--grey-light)}
+
+.lead{font-size:clamp(1.02rem,1.55vw,1.32rem);line-height:1.6;color:var(--grey);
+  max-width:58ch;font-weight:400}
+.lead strong{color:var(--ink);font-weight:500}
+.fine{font-size:.95rem;color:var(--grey-soft);line-height:1.6;letter-spacing:.005em}
+
+/* ===================== LÍNEA DE COTA (divisor) =====================
+   Hairline con ticks en los extremos + etiqueta micro opcional.       */
+.dim{display:flex;align-items:center;gap:18px;height:10px}
+.dim__l{flex:1;height:1px;background:var(--rule);position:relative;
+  transform:scaleX(0);transform-origin:left;
+  transition:transform 1.15s cubic-bezier(.2,.7,.2,1)}
+.dim__l::before,.dim__l::after{content:'';position:absolute;top:-4.5px;width:1px;height:10px;background:var(--rule)}
+.dim__l::before{left:0}.dim__l::after{right:0}
+.slide.is-visible .dim__l{transform:scaleX(1)}
+.dim__t{font-family:var(--display);font-size:.62rem;font-weight:500;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--grey-light);white-space:nowrap}
+
+/* =============================== LAYOUT ============================ */
+.stack>*+*{margin-top:26px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:clamp(40px,6vw,92px);align-items:center}
+
+/* ============================= LISTA FEATURES ====================== */
+.flist{display:grid}
+.flist li{list-style:none;display:flex;align-items:center;gap:20px;
+  padding:17px 2px;border-bottom:1px solid var(--rule-soft)}
+.flist li:first-child{border-top:1px solid var(--rule-soft)}
+.flist .ic{flex:none;width:20px;height:20px;color:var(--ink);stroke-width:1.3}
+.flist span{font-size:1.02rem;color:var(--ink);font-weight:500}
+
+/* =============================== STATS ============================= */
+.stat-num{font-family:var(--display);font-weight:500;
+  font-size:clamp(3.6rem,12vw,8.2rem);line-height:.9;letter-spacing:-.035em;
+  display:flex;align-items:flex-start}
+.stat-num .dash{color:var(--grey-light);margin:0 .07em;font-weight:400}
+.stat-num .unit{font-size:.34em;color:var(--grey);margin-left:.16em;margin-top:.5em;
+  letter-spacing:.02em;font-weight:500}
+.stat-cap{font-size:1.02rem;color:var(--grey);max-width:40ch;line-height:1.55;margin-top:20px}
+
+/* =============================== CARDS =============================
+   Planas, hairline, índice y marca de esquina (escuadra). Hover mínimo.*/
+.grid{display:grid;gap:16px}
+.grid-3{grid-template-columns:repeat(3,1fr)}
+.grid-2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--bg);border:1px solid var(--rule);padding:32px 30px;
+  position:relative;transition:border-color .5s ease, transform .5s ease}
+.card::after{content:'';position:absolute;right:13px;bottom:13px;width:9px;height:9px;
+  border-right:1px solid var(--grey-light);border-bottom:1px solid var(--grey-light);
+  opacity:.55;transition:opacity .5s ease, border-color .5s ease}
+.slide.is-visible .card:hover{border-color:var(--grey-soft);transform:translateY(-2px)}
+.slide.is-visible .card:hover::after{opacity:1;border-color:var(--ink)}
+.card .ic{width:24px;height:24px;color:var(--ink);stroke-width:1.25;margin-bottom:22px}
+.card h3{font-family:var(--display);font-weight:500;font-size:1.18rem;letter-spacing:-.01em;margin-bottom:10px}
+.card p{font-size:.94rem;color:var(--grey);line-height:1.55}
+.card .idx{position:absolute;top:26px;right:28px;font-family:var(--display);font-size:.66rem;
+  font-weight:500;letter-spacing:.2em;color:var(--grey-light)}
+
+/* =============================== STEPS ============================= */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+.step{position:relative;padding:0 40px 0 0;counter-increment:s}
+.steps{counter-reset:s}
+.step .snum{font-family:var(--display);font-weight:500;font-size:2.9rem;letter-spacing:-.03em;
+  color:var(--bg);-webkit-text-stroke:1px var(--grey-light);display:block;margin-bottom:24px;line-height:1}
+.step .sline{height:1px;background:var(--rule);margin:0 0 24px;position:relative;
+  transform:scaleX(0);transform-origin:left;transition:transform 1s cubic-bezier(.2,.7,.2,1)}
+.step .sline::before{content:'';position:absolute;left:0;top:-4px;width:1px;height:9px;background:var(--rule)}
+.slide.is-visible .step .sline{transform:scaleX(1)}
+.step h3{font-family:var(--display);font-weight:500;font-size:1.26rem;margin-bottom:12px;letter-spacing:-.01em}
+.step p{font-size:.97rem;color:var(--grey);line-height:1.6}
+.step .code{font-family:var(--display);background:var(--paper);border:1px solid var(--rule);
+  padding:1px 8px;font-size:.92em;letter-spacing:.04em;color:var(--ink)}
+
+/* ============================= COMPARACIÓN ========================= */
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.compare .col{border:1px solid var(--rule);padding:32px 30px;background:var(--bg);position:relative}
+.compare .col--now{background:var(--paper);border-color:var(--rule-soft)}
+.compare .col--new{border-color:var(--ink)}
+.compare .clabel{font-family:var(--display);font-size:.68rem;font-weight:500;letter-spacing:.22em;
+  text-transform:uppercase;color:var(--grey-soft);margin-bottom:20px;display:flex;align-items:center;gap:9px}
+.compare .col--new .clabel{color:var(--ink)}
+.compare .big{font-family:var(--display);font-weight:500;font-size:clamp(1.7rem,3.8vw,2.5rem);
+  line-height:1.06;letter-spacing:-.02em;margin-bottom:14px}
+.compare p{font-size:.96rem;color:var(--grey);line-height:1.6}
+
+/* ====================== MOCKUP: chat de WhatsApp =================== */
+.chat{max-width:380px;width:100%;margin-left:auto}
+.chat__head{display:flex;align-items:center;gap:10px;font-family:var(--display);
+  font-size:.66rem;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--grey-soft);margin-bottom:16px}
+.chat__head .dot{width:6px;height:6px;border-radius:50%;background:var(--ink)}
+.bubble{background:var(--bg);border:1px solid var(--rule);border-radius:2px 14px 14px 14px;
+  padding:18px 20px;box-shadow:0 24px 50px -38px rgba(0,0,0,.4)}
+.bubble .fwd{display:flex;align-items:center;gap:8px;font-size:.72rem;color:var(--grey);
+  font-weight:500;margin-bottom:12px}
+.bubble .fwd svg{width:14px;height:14px;stroke-width:1.5}
+.bubble .msg{font-size:1rem;color:var(--ink);line-height:1.45}
+.thumbs{display:flex;gap:8px;margin-top:16px}
+.thumbs i{flex:1;aspect-ratio:1;border:1px solid var(--rule);
+  background:repeating-linear-gradient(135deg,var(--rule-soft) 0 6px,transparent 6px 12px);
+  display:flex;align-items:flex-end;justify-content:flex-start}
+.thumbs i svg{width:16px;height:16px;margin:6px;color:var(--grey-light);stroke-width:1.25}
+.bubble .time{font-size:.68rem;color:var(--grey-light);text-align:right;margin-top:12px}
+.chat__resolve{display:flex;align-items:center;gap:12px;margin-top:20px;
+  font-size:.85rem;color:var(--grey)}
+.chat__resolve svg{width:17px;height:17px;color:var(--ink);stroke-width:1.4;flex:none}
+
+/* ========================= MOCKUP: búsqueda =======================
+   Campo editorial: solo borde inferior, como ficha técnica.           */
+.searchbox{display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--ink);
+  padding:16px 4px;max-width:560px}
+.searchbox svg{width:21px;height:21px;color:var(--ink);stroke-width:1.3;flex:none}
+.searchbox .q{font-family:var(--display);font-size:1.25rem;color:var(--ink);letter-spacing:-.01em}
+.searchbox .car{width:1.5px;height:1.25em;background:var(--ink);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.results{margin-top:6px;border-left:1px solid var(--rule);margin-left:24px;padding-left:26px}
+.results .row{display:flex;align-items:center;gap:16px;padding:17px 0;border-bottom:1px solid var(--rule-soft)}
+.results .row svg{width:17px;height:17px;color:var(--grey);stroke-width:1.3;flex:none}
+.results .row b{font-weight:500;color:var(--ink)}
+.results .row span{color:var(--grey);font-size:.95rem}
+.results .row .pill{margin-left:auto;font-family:var(--display);font-size:.62rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--grey-soft);border:1px solid var(--rule);padding:4px 12px}
+
+/* ============================ CHECK LIST ========================== */
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:0 64px}
+.checks li{list-style:none;display:flex;align-items:center;gap:18px;padding:21px 0;
+  border-bottom:1px solid var(--rule-soft);font-size:1.1rem;color:var(--ink);font-weight:500}
+.checks .ic{width:21px;height:21px;color:var(--ink);stroke-width:1.35;flex:none}
+
+/* ============================== PORTADA =========================== */
+.slide--cover{justify-content:center}
+.cover-grid{display:grid;grid-template-columns:1.3fr .7fr;gap:64px;align-items:center}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:46px}
+.brand .mark{width:28px;height:28px}
+.brand .mark path,.brand .mark line{stroke:var(--ink);stroke-width:1.5;fill:none}
+.brand .wm{font-family:var(--display);font-weight:600;font-size:1rem;letter-spacing:.36em;text-transform:uppercase}
+.cover-meta{display:flex;gap:40px;margin-top:48px;font-family:var(--display);font-size:.7rem;
+  font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--grey-soft)}
+.cover-meta b{display:block;color:var(--ink);font-weight:500;letter-spacing:.14em;margin-top:7px}
+
+.escuadra{width:100%;max-width:330px;height:auto;margin-left:auto}
+.escuadra path,.escuadra line{fill:none;stroke-linecap:round;stroke-linejoin:round}
+.escuadra .body{stroke:var(--ink);stroke-width:1.75}
+.escuadra .inner{stroke:var(--grey-light);stroke-width:1.25}
+.escuadra .tick{stroke:var(--grey);stroke-width:1.25}
+.escuadra path,.escuadra line{stroke-dasharray:1;stroke-dashoffset:1}
+.slide.is-visible .escuadra path,.slide.is-visible .escuadra line{
+  animation:draw 1.6s cubic-bezier(.4,0,.2,1) forwards}
+.escuadra .body{animation-delay:.15s}
+.escuadra .inner{animation-delay:.85s}
+.escuadra .tick{animation-delay:1.15s}
+@keyframes draw{to{stroke-dashoffset:0}}
+
+.hint{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  font-family:var(--display);font-size:.62rem;font-weight:500;letter-spacing:.28em;
+  text-transform:uppercase;color:var(--grey-light);transition:opacity .5s ease}
+.hint svg{width:16px;height:16px;animation:bob 1.9s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(5px)}}
+.deck.scrolled .hint{opacity:0}
+
+/* =============================== CIERRE =========================== */
+.slide--end{text-align:center;align-items:center}
+.slide--end .slide__inner{display:flex;flex-direction:column;align-items:center;gap:38px}
+.endmark{width:58px;height:58px}
+.endmark path,.endmark line{stroke:var(--ink);stroke-width:1.5;fill:none}
+.bigstatement{font-family:var(--display);font-weight:500;
+  font-size:clamp(1.6rem,4vw,3rem);line-height:1.16;letter-spacing:-.015em;max-width:21ch;text-wrap:balance}
+.bigstatement u{text-decoration:none;border-bottom:1.5px solid var(--ink);padding-bottom:3px}
+.endwm{font-family:var(--display);font-weight:600;letter-spacing:.42em;text-transform:uppercase;
+  font-size:.92rem;color:var(--grey)}
+
+/* =========================== ENTRADA (sutil) ===================== */
+[data-reveal]{opacity:0;transform:translateY(12px);
+  transition:opacity 1s cubic-bezier(.2,.7,.2,1),transform 1s cubic-bezier(.2,.7,.2,1);
+  transition-delay:calc(var(--i,0)*.07s)}
+.slide.is-visible [data-reveal]{opacity:1;transform:none}
+
+/* ============================= UI FLOTANTE ======================== */
+.counter{position:fixed;bottom:30px;right:34px;z-index:25;font-family:var(--display);
+  font-size:.72rem;font-weight:500;letter-spacing:.16em;color:var(--grey-soft);
+  display:flex;align-items:center;gap:9px}
+.counter b{color:var(--ink);font-weight:500}
+.counter .bar{width:46px;height:1px;background:var(--rule);position:relative;overflow:hidden}
+.counter .bar i{position:absolute;inset:0;background:var(--ink);transform-origin:left;transform:scaleX(0);
+  transition:transform .55s cubic-bezier(.2,.7,.2,1)}
+.toolbar{position:fixed;top:30px;right:34px;z-index:25;display:flex;gap:10px}
+.toolbar button{font-family:var(--display);font-size:.66rem;font-weight:500;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--grey);background:var(--bg);border:1px solid var(--rule);
+  padding:8px 15px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .35s ease}
+.toolbar button:hover{color:var(--ink);border-color:var(--ink)}
+.toolbar button svg{width:13px;height:13px;stroke-width:1.5}
+
+/* ============================== RESPONSIVE ======================== */
+@media(max-width:860px){
+  .split,.cover-grid{grid-template-columns:1fr;gap:38px}
+  .steps,.grid-3,.grid-2,.compare,.checks{grid-template-columns:1fr;gap:16px}
+  .steps{gap:32px}
+  .step{padding:0}
+  .escuadra{max-width:190px;margin:0}
+  .chat{margin:0;max-width:100%}
+  .results{margin-left:0;padding-left:18px}
+  .counter{bottom:18px;right:18px}.toolbar{top:18px;right:18px}
+  .tag{font-size:.6rem}
+  .crop{display:none}
+}
+@media(max-width:860px) and (orientation:portrait){.slide{padding-top:100px}}
+
+/* =========================== REDUCED MOTION ====================== */
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  [data-reveal]{opacity:1;transform:none}
+  .rule,.dim__l,.step .sline{transform:none}
+  .escuadra path,.escuadra line{stroke-dashoffset:0}
+}
+
+/* ================================ PRINT =========================== */
+@media print{
+  @page{size:landscape;margin:0}
+  body{overflow:visible}
+  .bg-grid,.crop,.counter,.toolbar,.hint{display:none!important}
+  .deck{height:auto;overflow:visible}
+  .slide{min-height:auto;page-break-after:always;break-after:page;padding:56px}
+  *{animation:none!important;transition:none!important}
+  [data-reveal]{opacity:1!important;transform:none!important}
+  .dim__l,.step .sline{transform:none!important}
+  .escuadra path,.escuadra line{stroke-dashoffset:0!important}
+}
+</style>
+</head>
+<body>
+
+<!-- ====== Sprite de íconos (línea fina, inline · sin CDN) ====== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+ <defs>
+  <g id="i-quote"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></g>
+  <g id="i-camera"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.2"/></g>
+  <g id="i-calendar"><rect x="3" y="4.5" width="18" height="17" rx="1.5"/><path d="M16 2v5M8 2v5M3 10h18"/></g>
+  <g id="i-check"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4 4.6-4.8"/></g>
+  <g id="i-refresh"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></g>
+  <g id="i-alert"><path d="M10.3 4 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0z"/><path d="M12 9v5M12 18h.01"/></g>
+  <g id="i-message"><path d="M21 14a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/></g>
+  <g id="i-search"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g>
+  <g id="i-folder"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></g>
+  <g id="i-clock"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.3l3.3 2"/></g>
+  <g id="i-truck"><path d="M14 17V6H2v11h2"/><path d="M14 9h4l4 4v4h-2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 17h2"/></g>
+  <g id="i-bell"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></g>
+  <g id="i-users"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></g>
+  <g id="i-send"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></g>
+  <g id="i-eyeoff"><path d="M10 4.2A9 9 0 0 1 12 4c7 0 10 8 10 8a18 18 0 0 1-2.4 3.4M6.6 6.6A18 18 0 0 0 2 12s3 8 10 8a9 9 0 0 0 4-1"/><path d="m2 2 20 20"/><path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"/></g>
+  <g id="i-layers"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></g>
+  <g id="i-spark"><path d="M12 2l2.1 7.9L22 12l-7.9 2.1L12 22l-2.1-7.9L2 12l7.9-2.1z"/></g>
+  <g id="i-corner-down"><path d="M9 6 4 11l5 5"/><path d="M20 4v6a3 3 0 0 1-3 3H4"/></g>
+  <g id="i-image"><rect x="3" y="3" width="18" height="18" rx="1.5"/><circle cx="9" cy="9" r="2"/><path d="m21 16-5-5L4 21"/></g>
+  <g id="i-mic"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></g>
+  <g id="i-chevron"><path d="m6 9 6 6 6-6"/></g>
+  <g id="i-pdf"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15h6M9 18h4"/></g>
+ </defs>
+</svg>
+
+<div class="bg-grid"></div>
+<span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>
+
+<div class="toolbar">
+  <button onclick="window.print()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-pdf"/></svg>PDF</button>
+</div>
+<div class="counter"><b class="cur">01</b><span class="bar"><i></i></span><span class="tot">11</span></div>
+
+<main class="deck" id="deck">
+
+  <!-- 01 · PORTADA -->
+  <section class="slide slide--cover">
+    <div class="slide__inner">
+      <div class="cover-grid">
+        <div>
+          <div class="brand" data-reveal style="--i:0">
+            <svg class="mark" viewBox="0 0 24 24"><path d="M3 21 21 21 3 4Z"/><line x1="7" y1="21" x2="7" y2="18"/><line x1="11" y1="21" x2="11" y2="18"/><line x1="15" y1="21" x2="15" y2="18"/></svg>
+            <span class="wm">Escuadra</span>
+          </div>
+          <p class="eyebrow" data-reveal style="--i:1">Presentación de producto</p>
+          <h1 class="display display--lg" data-reveal style="--i:2">El orden de tu obra,<br>sin cambiar <em>cómo trabajás.</em></h1>
+          <p class="lead" data-reveal style="--i:4;margin-top:30px">Escuadra organiza sola toda la información que hoy se te pierde en WhatsApp. Vos seguís igual.</p>
+          <div class="cover-meta" data-reveal style="--i:5">
+            <span>Para<b>Arquitectos</b></span>
+            <span>Versión<b>Mayo 2026</b></span>
+          </div>
+        </div>
+        <div data-reveal style="--i:3">
+          <svg class="escuadra" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid meet">
+            <path class="body" pathLength="1" d="M40 280 L280 280 L40 60 Z"/>
+            <path class="inner" pathLength="1" d="M78 250 L228 250 L78 110 Z"/>
+            <line class="tick" pathLength="1" x1="80"  y1="280" x2="80"  y2="266"/>
+            <line class="tick" pathLength="1" x1="120" y1="280" x2="120" y2="266"/>
+            <line class="tick" pathLength="1" x1="160" y1="280" x2="160" y2="266"/>
+            <line class="tick" pathLength="1" x1="200" y1="280" x2="200" y2="266"/>
+            <line class="tick" pathLength="1" x1="240" y1="280" x2="240" y2="266"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="hint"><span>Deslizá</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-chevron"/></svg></div>
+  </section>
+
+  <!-- 02 · EL PROBLEMA -->
+  <section class="slide">
+    <span class="tag">01 / El problema</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">Hoy, todo vive mezclado<br>en WhatsApp.</h2>
+      <div class="dim" data-reveal style="--i:1;margin:44px 0 52px"><span class="dim__t">Operación diaria</span><span class="dim__l"></span></div>
+      <div class="split">
+        <div>
+          <div class="stat-num" data-reveal style="--i:2"><span data-count="90">0</span><span class="unit">%</span></div>
+          <p class="stat-cap" data-reveal style="--i:3">de la operación diaria de cada obra pasa por un chat. Sin orden, sin estructura, sin búsqueda real.</p>
+        </div>
+        <ul class="flist">
+          <li data-reveal style="--i:3"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-quote"/></svg><span>Cotizaciones de proveedores</span></li>
+          <li data-reveal style="--i:4"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-camera"/></svg><span>Fotos de avance</span></li>
+          <li data-reveal style="--i:5"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-calendar"/></svg><span>Fechas, visitas técnicas y pagos</span></li>
+          <li data-reveal style="--i:6"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-check"/></svg><span>Aprobaciones del cliente</span></li>
+          <li data-reveal style="--i:7"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-refresh"/></svg><span>Cambios sobre la marcha</span></li>
+          <li data-reveal style="--i:8"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-alert"/></svg><span>Reclamos y problemas</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 · EL DOLOR -->
+  <section class="slide">
+    <span class="tag">02 / El dolor concreto</span>
+    <div class="slide__inner">
+      <div class="split">
+        <div>
+          <p class="eyebrow" data-reveal style="--i:0">Las fotos son lo peor</p>
+          <div class="stat-num" data-reveal style="--i:1"><span data-count="10">0</span><span class="dash">/</span><span data-count="20">0</span></div>
+          <p class="stat-cap" data-reveal style="--i:2">chats distintos por obra, con cientos de fotos mezcladas entre memes y audios de cumpleaños.</p>
+        </div>
+        <div class="stack">
+          <h2 class="display" data-reveal style="--i:2;font-size:clamp(1.8rem,3.8vw,2.8rem)">Buscar la foto del problema del baño que mandó el plomero hace tres semanas es un drama.</h2>
+          <p class="fine" data-reveal style="--i:4">Cuando hay que recordar qué dijo quién y cuándo, o armar un informe para el cliente, perdés horas revolviendo chats y juntando capturas.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 · LA SOLUCIÓN -->
+  <section class="slide">
+    <span class="tag">03 / La solución</span>
+    <div class="slide__inner">
+      <div class="split">
+        <div>
+          <p class="eyebrow" data-reveal style="--i:0">La idea, en una frase</p>
+          <h2 class="display" data-reveal style="--i:1">Reenviás un WhatsApp a Escuadra.<br><em>Se organiza solo.</em></h2>
+          <p class="fine" data-reveal style="--i:3;margin-top:32px">Sin instalar nada nuevo. Sin sacar a nadie de WhatsApp. Sin tocar tu número personal.</p>
+        </div>
+        <div class="chat" data-reveal style="--i:2">
+          <div class="chat__head"><span class="dot"></span>Escuadra · asistente</div>
+          <div class="bubble">
+            <div class="fwd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-corner-down"/></svg>Reenviado</div>
+            <p class="msg">Fotos del avance del baño, obra Belgrano</p>
+            <div class="thumbs">
+              <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-image"/></svg></i>
+              <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-image"/></svg></i>
+              <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-image"/></svg></i>
+            </div>
+            <p class="time">9:41</p>
+          </div>
+          <div class="chat__resolve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-check"/></svg>Guardado en Obra Belgrano · álbum Baños</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 · CÓMO FUNCIONA -->
+  <section class="slide">
+    <span class="tag">04 / Cómo funciona</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">Tres pasos. Una vez.</h2>
+      <div class="dim" data-reveal style="--i:1;margin:46px 0 56px"><span class="dim__t">Puesta en marcha</span><span class="dim__l"></span></div>
+      <div class="steps">
+        <div class="step" data-reveal style="--i:2">
+          <span class="snum">01</span><div class="sline"></div>
+          <h3>Te registrás</h3>
+          <p>Cargás tu mail y recibís un código corto, tipo <span class="code">ARQ-7K9F2</span>. Lo mandás por WhatsApp y tu cuenta queda vinculada en menos de un minuto.</p>
+        </div>
+        <div class="step" data-reveal style="--i:3">
+          <span class="snum">02</span><div class="sline"></div>
+          <h3>Reenviás en lenguaje natural</h3>
+          <p>Le mandás lo importante como se lo contarías a un colega. La IA de Escuadra entiende el mensaje, reconoce de qué obra hablás y lo acomoda en su lugar.</p>
+        </div>
+        <div class="step" data-reveal style="--i:4">
+          <span class="snum">03</span><div class="sline"></div>
+          <h3>Entrás al panel</h3>
+          <p>Desde la compu o el celular ves todo ordenado por obra, álbum y fecha. Listo para revisar y compartir con tu cliente.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 · EL PANEL -->
+  <section class="slide">
+    <span class="tag">05 / El panel</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">Toda la obra, ordenada sola.</h2>
+      <div class="dim" data-reveal style="--i:1;margin:40px 0 46px"><span class="dim__t">06 capacidades</span><span class="dim__l"></span></div>
+      <div class="grid grid-3">
+        <div class="card" data-reveal style="--i:2"><span class="idx">01</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-folder"/></svg><h3>Galería por álbumes</h3><p>Fachada, baños, instalación, terminaciones. Cada foto en su lugar.</p></div>
+        <div class="card" data-reveal style="--i:3"><span class="idx">02</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-clock"/></svg><h3>Línea de tiempo</h3><p>Fotos, audios, cotizaciones, aprobaciones y pagos, en orden.</p></div>
+        <div class="card" data-reveal style="--i:4"><span class="idx">03</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-truck"/></svg><h3>Vista de proveedores</h3><p>Todo lo conversado con cada uno: cotizaciones, deadlines y entregables.</p></div>
+        <div class="card" data-reveal style="--i:5"><span class="idx">04</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-calendar"/></svg><h3>Calendario</h3><p>Vencimientos, visitas técnicas, fechas de entrega y pagos.</p></div>
+        <div class="card" data-reveal style="--i:6"><span class="idx">05</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-bell"/></svg><h3>Alertas inteligentes</h3><p>“El plomero te debe respuesta hace 5 días.” “Vence la cotización de pintura mañana.”</p></div>
+        <div class="card" data-reveal style="--i:7"><span class="idx">06</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-search"/></svg><h3>Búsqueda total</h3><p>Texto, audios transcriptos y comentarios. Todo encontrable.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 · BÚSQUEDA -->
+  <section class="slide">
+    <span class="tag">06 / Búsqueda</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">Buscás. Aparece.</h2>
+      <div class="searchbox" data-reveal style="--i:1;margin-top:44px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-search"/></svg>
+        <span class="q">azulejo cromo</span><span class="car"></span>
+      </div>
+      <div class="results">
+        <div class="row" data-reveal style="--i:2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-mic"/></svg><span><b>“cambiar las griferías por cromo”</b> · nota del cliente, obra Palermo</span><span class="pill">Aprobación</span></div>
+        <div class="row" data-reveal style="--i:3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-quote"/></svg><span><b>Cotización plomería</b> · todas las obras, ordenadas por fecha</span><span class="pill">Proveedor</span></div>
+        <div class="row" data-reveal style="--i:4"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-camera"/></svg><span><b>“problema humedad”</b> · audios y fotos donde se mencionó</span><span class="pill">Obra</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 · FEATURE ESTRELLA -->
+  <section class="slide">
+    <span class="tag">07 / El feature estrella</span>
+    <div class="slide__inner">
+      <p class="eyebrow" data-reveal style="--i:0">Informes al cliente</p>
+      <h2 class="display" data-reveal style="--i:1">De dos horas a treinta segundos.</h2>
+      <div class="compare" data-reveal style="--i:2;margin:42px 0 40px">
+        <div class="col col--now">
+          <p class="clabel">Hoy</p>
+          <p class="big">1 a 3 horas</p>
+          <p>Armando un PowerPoint a mano con capturas del avance para mandarle al cliente.</p>
+        </div>
+        <div class="col col--new">
+          <p class="clabel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:13px;height:13px"><use href="#i-send"/></svg>Con Escuadra</p>
+          <p class="big">30 segundos</p>
+          <p>Seleccionás fotos, agregás un título y una nota, generás un link y lo mandás por WhatsApp.</p>
+        </div>
+      </div>
+      <div class="split" style="align-items:flex-end">
+        <div class="stat-num" data-reveal style="--i:3"><span data-count="20">0</span><span class="dash">–</span><span data-count="40">0</span><span class="unit">hs/mes</span></div>
+        <p class="fine" data-reveal style="--i:4">ahorradas por estudio. El cliente abre un informe visual prolijo, con tu logo. Y vos ves cuántas veces lo miró.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 · POR QUÉ ES DISTINTO -->
+  <section class="slide">
+    <span class="tag">08 / Por qué es distinto</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">No es otra app más.</h2>
+      <div class="dim" data-reveal style="--i:1;margin:40px 0 46px"><span class="dim__t">04 diferencias</span><span class="dim__l"></span></div>
+      <div class="grid grid-2">
+        <div class="card" data-reveal style="--i:2"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-eyeoff"/></svg><h3>Invisible para el proveedor</h3><p>No le pedís que instale nada ni que cambie de canal. Para él, no cambia nada.</p></div>
+        <div class="card" data-reveal style="--i:3"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-message"/></svg><h3>No te saca de WhatsApp</h3><p>Seguís con tu número de siempre. Cero riesgo de bloqueo, cero hábito nuevo.</p></div>
+        <div class="card" data-reveal style="--i:4"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-layers"/></svg><h3>Indexa toda la operación</h3><p>No solo fotos: cotizaciones, fechas, aprobaciones y pagos. La memoria de cada obra.</p></div>
+        <div class="card" data-reveal style="--i:5"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-spark"/></svg><h3>Convierte el caos en presentable</h3><p>El informe al cliente, solo, ya justifica el producto.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · PARA QUIÉN -->
+  <section class="slide">
+    <span class="tag">09 / Para quién es</span>
+    <div class="slide__inner">
+      <h2 class="display" data-reveal style="--i:0">Para estudios que<br>viven en la obra.</h2>
+      <div class="dim" data-reveal style="--i:1;margin:46px 0 50px"><span class="dim__t">Perfil</span><span class="dim__l"></span></div>
+      <ul class="checks">
+        <li data-reveal style="--i:2"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-users"/></svg>Estudios de 1 a 15 personas</li>
+        <li data-reveal style="--i:3"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-folder"/></svg>Entre 3 y 30 obras simultáneas</li>
+        <li data-reveal style="--i:4"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-check"/></svg>Sin PM dedicado: el arquitecto es el responsable directo</li>
+        <li data-reveal style="--i:5"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#i-send"/></svg>Que le mandan informes al cliente seguido</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 11 · CIERRE -->
+  <section class="slide slide--end">
+    <span class="tag">10 / En una frase</span>
+    <div class="slide__inner">
+      <svg class="endmark" viewBox="0 0 24 24" data-reveal style="--i:0"><path d="M3 21 21 21 3 4Z"/><line x1="7" y1="21" x2="7" y2="18"/><line x1="11" y1="21" x2="11" y2="18"/><line x1="15" y1="21" x2="15" y2="18"/></svg>
+      <p class="bigstatement" data-reveal style="--i:1">Escuadra ordena toda la operación de obra y arma <u>informes profesionales en segundos</u>, sin que cambies nada de cómo trabajás hoy.</p>
+      <span class="endwm" data-reveal style="--i:2">Escuadra</span>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var cur = document.querySelector('.counter .cur');
+  var tot = document.querySelector('.counter .tot');
+  var barfill = document.querySelector('.counter .bar i');
+  var current = 0;
+  tot.textContent = String(slides.length).padStart(2,'0');
+  function pad(n){ return String(n).padStart(2,'0'); }
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        e.target.classList.add('is-visible');
+        current = slides.indexOf(e.target);
+        cur.textContent = pad(current+1);
+        barfill.style.transform = 'scaleX('+ ((current+1)/slides.length) +')';
+        var nums = e.target.querySelectorAll('[data-count]');
+        for(var i=0;i<nums.length;i++){ countUp(nums[i]); }
+      }
+    });
+  }, { root: deck, threshold: 0.55 });
+  slides.forEach(function(s){ io.observe(s); });
+
+  function countUp(el){
+    if(el.dataset.done) return; el.dataset.done = '1';
+    var end = parseFloat(el.dataset.count), dur = 1300, t0 = performance.now();
+    function tick(now){
+      var p = Math.min(1, (now - t0)/dur);
+      var eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(end * eased);
+      if(p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function goto(i){ i = Math.max(0, Math.min(slides.length-1, i)); slides[i].scrollIntoView({ behavior:'smooth' }); }
+  window.addEventListener('keydown', function(e){
+    if(['ArrowDown','PageDown',' ','Enter'].indexOf(e.key) > -1){ e.preventDefault(); goto(current+1); }
+    else if(['ArrowUp','PageUp'].indexOf(e.key) > -1){ e.preventDefault(); goto(current-1); }
+    else if(e.key === 'Home'){ e.preventDefault(); goto(0); }
+    else if(e.key === 'End'){ e.preventDefault(); goto(slides.length-1); }
+  });
+
+  deck.addEventListener('scroll', function(){ if(deck.scrollTop > 40) deck.classList.add('scrolled'); }, { passive:true });
+})();
+</script>
+</body>
+</html>
