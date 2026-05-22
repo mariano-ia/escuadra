@@ -36,9 +36,17 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
           <h1 className="text-3xl">{obra.name}</h1>
           {obra.address && <p className="text-grey mt-1">{obra.address}</p>}
         </div>
-        {obra.client_name && (
-          <span className="font-display text-xs tracking-[0.2em] uppercase text-grey-light">{obra.client_name}</span>
-        )}
+        <div className="flex items-center gap-5">
+          {obra.client_name && (
+            <span className="font-display text-xs tracking-[0.2em] uppercase text-grey-light">{obra.client_name}</span>
+          )}
+          <Link
+            href={`/obras/${id}/informe`}
+            className="bg-ink text-bg font-display text-xs tracking-[0.12em] uppercase px-4 py-2.5 whitespace-nowrap"
+          >
+            Generar informe
+          </Link>
+        </div>
       </div>
 
       {/* Galería */}
