@@ -5,6 +5,7 @@ import { sendWhatsApp } from "@/lib/twilio/client";
 import { extractCode, resolveSender, tryLinkByCode } from "@/lib/ingest/onboarding";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { processInbound } from "@/lib/ingest/process";
+import { rateLimit } from "@/lib/ratelimit/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +66,9 @@ export async function POST(req: NextRequest) {
     }
     return twiml();
   }
+
+  // Rate limit por remitente (best-effort): evita flood/costo
+  if (!(await rateLimit(`wa:${phone}`, 40, 60))) return twiml();
 
   // 5) Guardar inbound + encolar; procesar en background tras el 200
   const { data: inbound } = await admin
