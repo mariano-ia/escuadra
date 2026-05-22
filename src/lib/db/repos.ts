@@ -79,3 +79,46 @@ export async function createStudioWithOwner(params: {
 
   return { studio, code };
 }
+
+/** Genera un código de vinculación fresco (TTL 15 min) para un estudio/usuario. */
+export async function freshOnboardingCode(
+  studioId: string,
+  userId: string,
+  email: string,
+): Promise<string> {
+  const admin = createAdminClient();
+  const code = generateOnboardingCode();
+  await admin.from("onboarding_codes").insert({
+    code,
+    studio_id: studioId,
+    user_id: userId,
+    email,
+    expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  return code;
+}
+
+/** Crea una obra con sus álbumes por defecto. */
+export async function createObra(params: {
+  studioId: string;
+  userId: string;
+  name: string;
+  address?: string | null;
+  clientName?: string | null;
+}): Promise<string> {
+  const admin = createAdminClient();
+  const { data: obra, error } = await admin
+    .from("obras")
+    .insert({
+      studio_id: params.studioId,
+      name: params.name,
+      address: params.address ?? null,
+      client_name: params.clientName ?? null,
+      created_by: params.userId,
+    })
+    .select("id")
+    .single();
+  if (error || !obra) throw error ?? new Error("No se pudo crear la obra");
+  await admin.rpc("create_default_albums", { p_obra: obra.id, p_studio: params.studioId });
+  return obra.id;
+}

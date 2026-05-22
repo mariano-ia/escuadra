@@ -12,9 +12,8 @@ async function signOut() {
 
 const NAV = [
   { href: "/obras", label: "Obras" },
-  { href: "/proveedores", label: "Proveedores" },
   { href: "/buscar", label: "Buscar" },
-  { href: "/inbox", label: "Inbox" },
+  { href: "/conectar", label: "Conectar WhatsApp" },
 ];
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
