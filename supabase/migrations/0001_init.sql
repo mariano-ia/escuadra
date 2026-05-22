@@ -605,7 +605,7 @@ language sql stable security definer set search_path = public as $$
          ts_rank(c.search_vector, query.tsq)
     from comments c join timeline_entries e on e.id = c.timeline_entry_id, query
    where c.studio_id = target_studio and c.search_vector @@ query.tsq
-  order by rank desc
+  order by 6 desc
   limit 100;
 $$;
 
