@@ -14,7 +14,7 @@ const NAV = [
   { href: "/obras", label: "Obras" },
   { href: "/inbox", label: "Inbox" },
   { href: "/buscar", label: "Buscar" },
-  { href: "/conectar", label: "Conectar WhatsApp" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {

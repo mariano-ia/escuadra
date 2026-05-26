@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createServerClient } from "@/lib/db/supabase";
 import { signedUrls } from "@/lib/storage";
+import { SearchClient } from "@/app/(panel)/buscar/search-client";
 
 const TYPE_LABEL: Record<string, string> = {
   photo: "Fotos", audio: "Audio", text: "Nota", note: "Nota", quote: "Cotización",
@@ -58,19 +59,32 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
         </div>
       </div>
 
+      {/* Buscador de la obra */}
+      <section className="mb-10 max-w-xl">
+        <SearchClient obraId={id} autoFocus={false} />
+      </section>
+
       {/* Galería */}
       {photos && photos.length > 0 && (
         <section className="mb-12">
           <h2 className="font-display text-xs tracking-[0.2em] uppercase text-grey-soft mb-3">Galería</h2>
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
-            {photos.map((p) => (
-              <div key={p.id} className="aspect-square border border-rule overflow-hidden bg-paper">
-                {urls[p.storage_path] && (
-                  // eslint-disable-next-line @next/next/no-img-element
+            {photos.map((p) =>
+              urls[p.storage_path] ? (
+                <a
+                  key={p.id}
+                  href={urls[p.storage_path]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="aspect-square border border-rule overflow-hidden bg-paper block hover:opacity-90"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={urls[p.storage_path]} alt={p.caption ?? ""} className="w-full h-full object-cover" />
-                )}
-              </div>
-            ))}
+                </a>
+              ) : (
+                <div key={p.id} className="aspect-square border border-rule bg-paper" />
+              ),
+            )}
           </div>
         </section>
       )}

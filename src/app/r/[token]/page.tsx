@@ -42,7 +42,9 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
             {data.obraName ? `${data.obraName} · ` : ""}
             {fecha}
           </p>
-          {data.note && <p className="text-grey mt-4 max-w-prose">{data.note}</p>}
+          {data.note && (
+            <div className="text-grey mt-4 max-w-prose prose-note" dangerouslySetInnerHTML={{ __html: data.note }} />
+          )}
         </div>
       </header>
 

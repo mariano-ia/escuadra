@@ -2,6 +2,7 @@
 
 import { getActiveStudio } from "@/lib/auth/session";
 import { createReport } from "@/lib/reports";
+import sanitizeHtml from "sanitize-html";
 
 export type ReportState = { token?: string; error?: string } | null;
 
@@ -11,7 +12,13 @@ export async function createReportAction(_prev: ReportState, formData: FormData)
 
   const obraId = String(formData.get("obraId") ?? "");
   const title = (String(formData.get("title") ?? "").trim()) || "Avance de obra";
-  const note = (String(formData.get("note") ?? "").trim()) || null;
+  const rawNote = String(formData.get("note") ?? "").trim();
+  const note = rawNote
+    ? sanitizeHtml(rawNote, {
+        allowedTags: ["b", "strong", "i", "em", "u", "p", "br", "ul", "ol", "li", "h3"],
+        allowedAttributes: {},
+      }) || null
+    : null;
   const photoIds = formData.getAll("photo").map(String).filter(Boolean);
 
   if (!obraId) return { error: "Falta la obra." };
