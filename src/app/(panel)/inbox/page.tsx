@@ -1,6 +1,7 @@
 import { createServerClient } from "@/lib/db/supabase";
 import { signedUrls } from "@/lib/storage";
 import { InboxList, type Entry } from "./inbox-list";
+import { SearchClient } from "@/app/(panel)/buscar/search-client";
 
 export default async function InboxPage() {
   const sb = await createServerClient();
@@ -39,8 +40,11 @@ export default async function InboxPage() {
     <div>
       <h1 className="text-3xl mb-2">Mensajes</h1>
       <p className="text-grey text-sm mb-6">
-        Todo lo que llegó por WhatsApp. Filtrá por obra; lo que quedó sin clasificar lo asignás en un toque.
+        Todo lo que llegó por WhatsApp. Buscá, filtrá por obra, y asigná en un toque lo que quedó sin clasificar.
       </p>
+      <div className="mb-8 max-w-xl">
+        <SearchClient autoFocus={false} />
+      </div>
       <InboxList entries={items} obras={realObras} />
     </div>
   );

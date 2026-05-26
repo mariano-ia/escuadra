@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { moveEntryAction } from "./actions";
 
 export type Entry = {
@@ -25,6 +26,53 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     >
       {children}
     </button>
+  );
+}
+
+function ObraSelect({ obras, value, onChange }: { obras: Obra[]; value: string; onChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const sel = obras.find((o) => o.id === value);
+  const filtered = obras.filter((o) => o.name.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`font-display text-xs tracking-[0.1em] uppercase px-3 py-1.5 border whitespace-nowrap inline-flex items-center gap-1.5 ${sel ? "border-ink bg-ink text-bg" : "border-rule text-grey hover:border-grey-soft"}`}
+      >
+        {sel ? sel.name : "Obra"}
+        <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute z-20 mt-1 w-60 bg-bg border border-ink shadow-xl">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar obra…"
+              className="w-full px-3 py-2 border-b border-rule text-sm outline-none placeholder:text-grey-light"
+            />
+            <ul className="max-h-60 overflow-y-auto">
+              {filtered.length === 0 && <li className="px-3 py-2 text-xs text-grey-soft">Sin resultados</li>}
+              {filtered.map((o) => (
+                <li key={o.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onChange(o.id); setOpen(false); setQ(""); }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-paper"
+                  >
+                    {o.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -85,14 +133,12 @@ export function InboxList({ entries, obras }: { entries: Entry[]; obras: Obra[] 
   );
   return (
     <div>
-      <div className="flex gap-2 overflow-x-auto pb-3 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Chip active={filter === "all"} onClick={() => setFilter("all")}>Todas</Chip>
         <Chip active={filter === "inbox"} onClick={() => setFilter("inbox")}>
           Sin clasificar{inboxCount ? ` (${inboxCount})` : ""}
         </Chip>
-        {obras.map((o) => (
-          <Chip key={o.id} active={filter === o.id} onClick={() => setFilter(o.id)}>{o.name}</Chip>
-        ))}
+        <ObraSelect obras={obras} value={filter !== "all" && filter !== "inbox" ? filter : ""} onChange={setFilter} />
       </div>
       {filtered.length === 0 ? (
         <div className="border border-rule p-10 text-center text-grey">Nada por acá todavía.</div>
