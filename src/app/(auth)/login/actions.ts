@@ -21,5 +21,5 @@ export async function loginAction(_prev: AuthState, formData: FormData): Promise
   const sb = await createServerClient();
   const { error } = await sb.auth.signInWithPassword(parsed.data);
   if (error) return { error: "Email o contraseña incorrectos." };
-  redirect("/obras");
+  redirect("/inbox");
 }

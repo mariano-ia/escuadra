@@ -45,5 +45,5 @@ export async function signupAction(_prev: AuthState, formData: FormData): Promis
   const sb = await createServerClient();
   const { error: sErr } = await sb.auth.signInWithPassword({ email, password });
   if (sErr) redirect("/login");
-  redirect("/obras");
+  redirect("/inbox");
 }

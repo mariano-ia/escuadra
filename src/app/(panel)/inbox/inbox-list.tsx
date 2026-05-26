@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
+import { ZoomImage } from "@/components/zoom-image";
 import { moveEntryAction } from "./actions";
 
 export type Entry = {
@@ -86,10 +87,7 @@ function Item({ e, obras }: { e: Entry; obras: Obra[] }) {
       {e.photos.length > 0 && (
         <div className="flex gap-2 shrink-0">
           {e.photos.slice(0, 2).map((u, i) => (
-            <a key={i} href={u} target="_blank" rel="noreferrer" className="block">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={u} alt="" className="w-16 h-16 object-cover border border-rule hover:opacity-80" />
-            </a>
+            <ZoomImage key={i} src={u} className="w-16 h-16 border border-rule hover:opacity-80" />
           ))}
         </div>
       )}

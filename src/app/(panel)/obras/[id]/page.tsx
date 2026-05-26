@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createServerClient } from "@/lib/db/supabase";
 import { signedUrls } from "@/lib/storage";
 import { SearchClient } from "@/app/(panel)/buscar/search-client";
+import { ZoomImage } from "@/components/zoom-image";
 
 const TYPE_LABEL: Record<string, string> = {
   photo: "Fotos", audio: "Audio", text: "Nota", note: "Nota", quote: "Cotización",
@@ -71,16 +72,12 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
             {photos.map((p) =>
               urls[p.storage_path] ? (
-                <a
+                <ZoomImage
                   key={p.id}
-                  href={urls[p.storage_path]}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="aspect-square border border-rule overflow-hidden bg-paper block hover:opacity-90"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={urls[p.storage_path]} alt={p.caption ?? ""} className="w-full h-full object-cover" />
-                </a>
+                  src={urls[p.storage_path]}
+                  alt={p.caption ?? ""}
+                  className="aspect-square border border-rule overflow-hidden bg-paper hover:opacity-90"
+                />
               ) : (
                 <div key={p.id} className="aspect-square border border-rule bg-paper" />
               ),

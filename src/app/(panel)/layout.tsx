@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Settings, LogOut } from "lucide-react";
 import { getActiveStudio } from "@/lib/auth/session";
 import { createServerClient } from "@/lib/db/supabase";
+import { NavLinks } from "./nav-links";
 
 async function signOut() {
   "use server";
@@ -45,52 +46,49 @@ export default async function PanelLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Barra de navegación (sola) */}
       <header className="border-b border-rule">
-        <div className="max-w-6xl mx-auto px-5 sm:px-6">
-          <div className="h-14 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-5 sm:gap-7 min-w-0">
-              <Link href="/inbox" className="flex items-center gap-2 shrink-0" aria-label="Escuadra — inicio">
-                <svg viewBox="0 0 24 24" className="w-5 h-5 text-ink" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 21 21 21 3 4Z" />
-                  <line x1="7" y1="21" x2="7" y2="18" />
-                  <line x1="11" y1="21" x2="11" y2="18" />
-                  <line x1="15" y1="21" x2="15" y2="18" />
-                </svg>
-                <span className="font-display font-semibold tracking-[0.28em] uppercase text-sm hidden sm:inline">Escuadra</span>
-              </Link>
-              <nav className="flex items-center gap-5">
-                {NAV.map((n) => (
-                  <Link key={n.href} href={n.href} className="font-display text-xs tracking-[0.16em] uppercase text-grey hover:text-ink transition-colors whitespace-nowrap">
-                    {n.label}
-                  </Link>
-                ))}
-              </nav>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-sm text-grey truncate hidden md:inline mr-2 max-w-[16ch]">{ctx.studio.name}</span>
-              <div className="relative group">
-                <Link href="/settings" aria-label="Configuración" className="grid place-items-center w-9 h-9 text-grey hover:text-ink transition-colors">
-                  <Settings className="w-[18px] h-[18px]" strokeWidth={1.6} />
-                </Link>
-                <Tip>Configuración</Tip>
-              </div>
-              <form action={signOut}>
-                <div className="relative group">
-                  <button type="submit" aria-label="Salir" className="grid place-items-center w-9 h-9 text-grey hover:text-ink transition-colors">
-                    <LogOut className="w-[18px] h-[18px]" strokeWidth={1.6} />
-                  </button>
-                  <Tip>Salir</Tip>
-                </div>
-              </form>
-            </div>
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-5 sm:gap-8 min-w-0">
+            <Link href="/inbox" className="flex items-center gap-2 shrink-0" aria-label="Escuadra — inicio">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 text-ink" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 21 21 21 3 4Z" />
+                <line x1="7" y1="21" x2="7" y2="18" />
+                <line x1="11" y1="21" x2="11" y2="18" />
+                <line x1="15" y1="21" x2="15" y2="18" />
+              </svg>
+              <span className="font-display font-semibold tracking-[0.28em] uppercase text-sm hidden sm:inline">Escuadra</span>
+            </Link>
+            <NavLinks items={NAV} />
           </div>
-          <div className="pb-2.5 -mt-0.5">
-            <p className="text-sm text-grey">
-              <span className="text-ink font-medium">Hola{first ? `, ${first}` : ""}.</span> {msg}
-            </p>
+          <div className="flex items-center gap-1">
+            <div className="relative group">
+              <Link href="/settings" aria-label="Configuración" className="grid place-items-center w-9 h-9 text-grey hover:text-ink transition-colors">
+                <Settings className="w-[18px] h-[18px]" strokeWidth={1.6} />
+              </Link>
+              <Tip>Configuración</Tip>
+            </div>
+            <form action={signOut}>
+              <div className="relative group">
+                <button type="submit" aria-label="Salir" className="grid place-items-center w-9 h-9 text-grey hover:text-ink transition-colors">
+                  <LogOut className="w-[18px] h-[18px]" strokeWidth={1.6} />
+                </button>
+                <Tip>Salir</Tip>
+              </div>
+            </form>
           </div>
         </div>
       </header>
+
+      {/* Saludo (debajo de la nav) */}
+      <div className="border-b border-rule-soft bg-paper/40">
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 py-2.5">
+          <p className="text-sm text-grey">
+            <span className="text-ink font-medium">Hola{first ? `, ${first}` : ""}.</span> {msg}
+          </p>
+        </div>
+      </div>
+
       <main className="flex-1 max-w-6xl w-full mx-auto px-5 sm:px-6 py-8">{children}</main>
     </div>
   );
