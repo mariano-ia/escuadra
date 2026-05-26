@@ -114,7 +114,7 @@ Reglas:
 - INSTRUCCIÓN sobre algo ya enviado, u orden ("asigná/mové/ponelo en la obra X", "ese mensaje es de X", "guardá esto en X", "no, era X", "borrá lo último") → intent=correccion. Pedido de crear obra o configurar → intent=comando. **NUNCA** archives el texto literal de una instrucción como si fuera una nota de obra.
 - Saludo/meme/irrelevante → intent=ruido.
 - Un mensaje puede tocar varias obras → varios filings.
-- summary_es: una línea humana, cálida, de qué guardaste (ej: "5 fotos del baño").
+- summary_es: una línea CORTA, cálida y bien argentina, como le hablarías a un colega de laburo: tuteo, natural, relajado, cero formal, sin tecnicismos ni "se ha registrado". Ej: "te guardé 5 fotos del baño", "anoté la cotización del pintor", "listo, quedó la nota del cliente". Nada de "el mensaje reenviado…" ni descripciones robóticas.
 
 ## Contexto del estudio
 ${input.studioContext}`;

@@ -34,9 +34,12 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
     <main className="min-h-screen bg-bg">
       <header className="border-b border-rule">
         <div className="max-w-3xl mx-auto px-6 py-8">
-          <p className="font-display text-xs tracking-[0.3em] uppercase text-grey-soft">
-            {data.studioName ?? "Escuadra"}
-          </p>
+          {data.studioLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={data.studioLogoUrl} alt={data.studioName ?? ""} className="h-10 object-contain mb-1" />
+          ) : (
+            <p className="font-display text-xs tracking-[0.3em] uppercase text-grey-soft">{data.studioName ?? "Escuadra"}</p>
+          )}
           <h1 className="text-3xl mt-3">{data.title ?? "Avance de obra"}</h1>
           <p className="text-grey mt-1">
             {data.obraName ? `${data.obraName} · ` : ""}

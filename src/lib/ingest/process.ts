@@ -331,7 +331,7 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   if (decision.setsActiveObra) await setActiveObra(studioId, userId, decision.setsActiveObra);
 
   const obraName = realObras.find((o) => o.id === obraId)?.name ?? "tu Inbox";
-  await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}. ${cls.summary_es || "Lo guardé"} — en ${obraName}.${!confident ? " (sin clasificar; ordenalo desde el panel)" : ""}`);
+  await sendWhatsApp(from, `Dale${name ? `, ${name}` : ""} 👌 ${cls.summary_es || "lo guardé"} — quedó en ${obraName}.${!confident ? " Lo dejé sin obra fija; cuando puedas lo ordenás desde el panel 🙂" : ""}`);
   await logEvent(studioId, userId, "filed", { obra_id: obraId, confident });
   await finishJob(opts.jobId, "done");
 }

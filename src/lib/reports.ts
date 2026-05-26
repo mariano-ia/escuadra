@@ -1,6 +1,7 @@
 import "server-only";
 import { randomBytes } from "crypto";
 import { createAdminClient } from "@/lib/db/supabase";
+import { signedUrl } from "./storage";
 
 /** Token público inadivinable (24 bytes, no UUID). */
 export function reportToken(): string {
@@ -54,6 +55,7 @@ export type PublicReport = {
   created_at: string;
   obraName: string | null;
   studioName: string | null;
+  studioLogoUrl: string | null;
   photoPaths: string[];
 };
 
@@ -61,7 +63,7 @@ export async function getPublicReport(token: string): Promise<PublicReport | nul
   const admin = createAdminClient();
   const { data: report } = await admin
     .from("reports")
-    .select("id, studio_id, title, note, created_at, is_active, revoked_at, expires_at, obras(name), studios(name)")
+    .select("id, studio_id, title, note, created_at, is_active, revoked_at, expires_at, obras(name), studios(name, logo_storage_path)")
     .eq("public_token", token)
     .maybeSingle();
   if (!report || !report.is_active || report.revoked_at) return null;
@@ -74,10 +76,13 @@ export async function getPublicReport(token: string): Promise<PublicReport | nul
     .order("sort_order", { ascending: true });
 
   const obra = report.obras as { name: string } | null;
-  const studio = report.studios as { name: string } | null;
+  const studio = report.studios as { name: string; logo_storage_path: string | null } | null;
   const photoPaths = (rp ?? [])
     .map((r) => (r.photos as { storage_path: string } | null)?.storage_path)
     .filter((p): p is string => !!p);
+  const studioLogoUrl = studio?.logo_storage_path
+    ? await signedUrl(studio.logo_storage_path, 3600).catch(() => null)
+    : null;
 
   return {
     id: report.id,
@@ -87,6 +92,7 @@ export async function getPublicReport(token: string): Promise<PublicReport | nul
     created_at: report.created_at,
     obraName: obra?.name ?? null,
     studioName: studio?.name ?? null,
+    studioLogoUrl,
     photoPaths,
   };
 }
