@@ -8,6 +8,7 @@ import { classifyMessage, type Classification, type Filing } from "@/lib/claude/
 import { finishJob } from "@/lib/jobs/queue";
 import { resolveRouting, parseObraCommand } from "@/lib/ingest/route";
 import { moveEntryToObra } from "@/lib/db/repos";
+import { driveConfigured, syncPhotoToDrive } from "@/lib/cloud/gdrive";
 import type { Json } from "@/lib/db/types";
 
 type RawParams = Record<string, string>;
@@ -204,6 +205,7 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   const numMedia = parseInt(raw.NumMedia ?? "0", 10) || 0;
   const stored: Stored[] = [];
   const images: { mediaType: string; dataBase64: string }[] = [];
+  const imageBlobs: { bytes: Buffer; mime: string }[] = []; // para backup en Drive (opt-in)
   let transcript: string | null = null;
   for (let i = 0; i < numMedia; i++) {
     const url = raw[`MediaUrl${i}`];
@@ -213,7 +215,10 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
       const { bytes, contentType } = await downloadTwilioMedia(url);
       const path = await uploadMedia({ studioId, subpath: `incoming/${randomUUID()}.${ext(contentType)}`, bytes, contentType });
       stored.push({ path, contentType, isImage: isImage(contentType), isAudio: isAudio(contentType) });
-      if (isImage(contentType) && images.length < 4) images.push({ mediaType: contentType, dataBase64: bytes.toString("base64") });
+      if (isImage(contentType)) {
+        if (images.length < 4) images.push({ mediaType: contentType, dataBase64: bytes.toString("base64") });
+        imageBlobs.push({ bytes, mime: contentType });
+      }
       if (isAudio(contentType) && !transcript) transcript = await transcribeAudio(bytes, `audio.${ext(contentType)}`);
     } catch (e) {
       console.error("[ingest] media fail", e);
@@ -333,5 +338,24 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   const obraName = realObras.find((o) => o.id === obraId)?.name ?? "tu Inbox";
   await sendWhatsApp(from, `Dale${name ? `, ${name}` : ""} 👌 ${cls.summary_es || "lo guardé"} — quedó en ${obraName}.${!confident ? " Lo dejé sin obra fija; cuando puedas lo ordenás desde el panel 🙂" : ""}`);
   await logEvent(studioId, userId, "filed", { obra_id: obraId, confident });
+
+  // Backup en Google Drive (opt-in por estudio). Best-effort: nunca rompe el archivado.
+  if (imageBlobs.length && driveConfigured()) {
+    const folder = realObras.find((o) => o.id === obraId)?.name ?? "Sin clasificar";
+    for (let i = 0; i < imageBlobs.length; i++) {
+      try {
+        await syncPhotoToDrive({
+          studioId,
+          obraName: folder,
+          fileName: `${Date.now()}-${i + 1}.${ext(imageBlobs[i].mime)}`,
+          mime: imageBlobs[i].mime,
+          bytes: imageBlobs[i].bytes,
+        });
+      } catch (e) {
+        console.error("[ingest] drive sync", e);
+      }
+    }
+  }
+
   await finishJob(opts.jobId, "done");
 }

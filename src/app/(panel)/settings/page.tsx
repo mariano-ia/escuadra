@@ -1,6 +1,7 @@
 import { getActiveStudio } from "@/lib/auth/session";
 import { createServerClient } from "@/lib/db/supabase";
 import { signedUrl } from "@/lib/storage";
+import { driveConfigured, getConnection } from "@/lib/cloud/gdrive";
 import { generateCodeAction, updateNameAction, updateStudioAction, uploadLogoAction } from "./actions";
 
 function Section({ title, children, soon }: { title: string; children?: React.ReactNode; soon?: boolean }) {
@@ -22,9 +23,9 @@ function Section({ title, children, soon }: { title: string; children?: React.Re
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ code?: string; saved?: string }>;
+  searchParams: Promise<{ code?: string; saved?: string; drive?: string }>;
 }) {
-  const { code, saved } = await searchParams;
+  const { code, saved, drive } = await searchParams;
   const ctx = await getActiveStudio();
   const sb = await createServerClient();
   const { data: prof } = ctx
@@ -38,10 +39,23 @@ export default async function SettingsPage({
   const logoUrl = logoPath ? await signedUrl(logoPath, 3600).catch(() => null) : null;
   const sandbox = (process.env.TWILIO_WHATSAPP_FROM ?? "").replace(/^whatsapp:/, "");
 
+  const driveOn = driveConfigured();
+  const driveConn = driveOn && ctx ? await getConnection(ctx.studio.id).catch(() => null) : null;
+  const driveConnected = !!driveConn?.refresh_token_enc;
+  const driveMsg: Record<string, string> = {
+    connected: "Google Drive conectado ✓ — las fotos se respaldan por obra.",
+    error: "No pudimos conectar Google Drive. Probá de nuevo.",
+    expired: "El enlace de conexión venció. Probá de nuevo.",
+    unconfigured: "Google Drive todavía no está disponible.",
+  };
+
   return (
     <div className="max-w-xl">
       <h1 className="text-3xl mb-8">Configuración</h1>
       {saved && <p className="text-xs text-grey-soft mb-6">Guardado ✓</p>}
+      {drive && driveMsg[drive] && (
+        <p className={`text-xs mb-6 ${drive === "connected" ? "text-grey-soft" : "text-ink"}`}>{driveMsg[drive]}</p>
+      )}
 
       <Section title="Tu nombre">
         <p className="text-grey text-sm mb-4">Así te saluda Escuadra y figura en la atribución de cada registro.</p>
@@ -108,11 +122,20 @@ export default async function SettingsPage({
         <p className="text-grey text-sm">Invitá a tus socios y asistentes para compartir las obras del estudio.</p>
       </Section>
 
-      <Section title="Integraciones" soon>
+      <Section title="Integraciones" soon={!driveOn}>
         <div className="space-y-2">
-          <div className="border border-rule px-4 py-3 flex items-center justify-between">
+          <div className="border border-rule px-4 py-3 flex items-center justify-between gap-4">
             <span className="text-sm text-ink">Google Drive — backup de fotos por obra</span>
-            <span className="font-display text-[0.55rem] tracking-[0.16em] uppercase text-grey-light">Coming soon</span>
+            {!driveOn ? (
+              <span className="font-display text-[0.55rem] tracking-[0.16em] uppercase text-grey-light">Coming soon</span>
+            ) : driveConnected ? (
+              <span className="font-display text-[0.6rem] tracking-[0.14em] uppercase text-grey-soft whitespace-nowrap">conectado ✓</span>
+            ) : (
+              <a href="/api/oauth/gdrive"
+                className="bg-ink text-bg font-display text-xs tracking-wide px-4 py-2 whitespace-nowrap">
+                Conectar
+              </a>
+            )}
           </div>
           <div className="border border-rule px-4 py-3 flex items-center justify-between">
             <span className="text-sm text-ink">Dropbox</span>
