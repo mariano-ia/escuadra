@@ -60,7 +60,8 @@ export function ReportBuilder({ obraId, photos }: { obraId: string; photos: Phot
 
       {photos.length === 0 ? (
         <p className="text-grey text-sm border border-rule p-6">
-          Esta obra todavía no tiene fotos. Reenviá algunas por WhatsApp y volvé.
+          Esta obra todavía no tiene fotos. Podés generar igual el informe con el título y la nota,
+          y sumar fotos más adelante.
         </p>
       ) : (
         <fieldset>
@@ -82,10 +83,10 @@ export function ReportBuilder({ obraId, photos }: { obraId: string; photos: Phot
       {state?.error && <p className="text-sm text-red-700">{state.error}</p>}
       <button
         type="submit"
-        disabled={pending || photos.length === 0}
+        disabled={pending}
         className="bg-ink text-bg font-display text-sm tracking-wide px-6 py-3 disabled:opacity-50"
       >
-        {pending ? "Generando…" : "Generar link"}
+        {pending ? "Generando…" : photos.length === 0 ? "Generar informe sin fotos" : "Generar link"}
       </button>
     </form>
   );

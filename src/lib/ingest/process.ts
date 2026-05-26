@@ -6,6 +6,8 @@ import { uploadMedia } from "@/lib/storage";
 import { transcribeAudio } from "@/lib/whisper/transcribe";
 import { classifyMessage, type Classification, type Filing } from "@/lib/claude/classify";
 import { finishJob } from "@/lib/jobs/queue";
+import { resolveRouting, parseObraCommand } from "@/lib/ingest/route";
+import { moveEntryToObra } from "@/lib/db/repos";
 import type { Json } from "@/lib/db/types";
 
 type RawParams = Record<string, string>;
@@ -143,15 +145,55 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   const { data: profile } = await admin.from("profiles").select("full_name").eq("id", userId).maybeSingle();
   const name = firstName(profile?.full_name ?? null);
 
-  // --- Comando: fijar obra activa ---
-  const cmd = body.match(/^(?:obra|trabajando en|pasame a|estoy en la? de)\s+(.{2,60})$/i);
-  if (cmd && parseInt(raw.NumMedia ?? "0", 10) === 0) {
-    const q = cmd[1].trim().toLowerCase();
+  const noMedia = parseInt(raw.NumMedia ?? "0", 10) === 0;
+
+  // --- ¿Este mensaje responde una aclaración abierta? (resolverla; no asumir) ---
+  if (body && noMedia) {
+    const { data: clar } = await admin
+      .from("pending_clarifications")
+      .select("*").eq("studio_id", studioId).eq("user_id", userId).eq("status", "open")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (clar) {
+      const options = (clar.options as string[] | null) ?? [];
+      const { data: obras } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
+      let chosen: { id: string; name: string } | undefined;
+      const num = body.match(/^\s*(\d+)\s*$/);
+      if (num) {
+        const optName = options[parseInt(num[1], 10) - 1];
+        if (optName) chosen = (obras ?? []).find((o) => o.name.toLowerCase() === optName.toLowerCase());
+      }
+      if (!chosen) {
+        const q = body.toLowerCase();
+        chosen = (obras ?? []).find((o) => q.includes(o.name.toLowerCase()) || o.name.toLowerCase().includes(q));
+      }
+      if (chosen) {
+        const pe = (clar.partial_extraction as { inbound_id?: string }) ?? {};
+        if (pe.inbound_id) {
+          const { data: ents } = await admin.from("timeline_entries").select("id").eq("inbound_message_id", pe.inbound_id).eq("studio_id", studioId);
+          for (const e of ents ?? []) await moveEntryToObra({ studioId, entryId: e.id, obraId: chosen.id });
+        }
+        await admin.from("pending_clarifications").update({ status: "resolved" }).eq("id", clar.id);
+        await setActiveObra(studioId, userId, chosen.id);
+        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, lo moví a ${chosen.name}. Ahora trabajás en esa obra.`);
+        await logEvent(studioId, userId, "clarification_resolved", { obra_id: chosen.id });
+        await finishJob(opts.jobId, "done");
+        return;
+      }
+      // si no parece una respuesta, seguimos: se procesa como contenido nuevo
+    }
+  }
+
+  // --- Comando: fijar obra activa ("obra X" o el nombre exacto de una obra a secas) ---
+  if (noMedia && body) {
+    const cmdQuery = parseObraCommand(body);
+    const q = (cmdQuery ?? body).trim().toLowerCase();
     const { data: obras } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
-    const match = (obras ?? []).find((o) => o.name.toLowerCase() === q) ?? (obras ?? []).find((o) => o.name.toLowerCase().includes(q));
+    const match =
+      (obras ?? []).find((o) => o.name.toLowerCase() === q) ??
+      (cmdQuery ? (obras ?? []).find((o) => o.name.toLowerCase().includes(q)) : undefined);
     if (match) {
       await setActiveObra(studioId, userId, match.id);
-      await sendWhatsApp(from, `Listo${name ? `, ${name}` : ""} 👷 ahora trabajás en ${match.name}. Mandá lo que quieras y lo guardo ahí.`);
+      await sendWhatsApp(from, `Listo${name ? `, ${name}` : ""} 👷 Ahora trabajás en ${match.name}. Mandame fotos, audios o cotizaciones y los guardo ahí.`);
       await logEvent(studioId, userId, "set_active_obra", { obra_id: match.id });
       await finishJob(opts.jobId, "done");
       return;
@@ -191,22 +233,52 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
     };
   }
 
+  // --- Intención que se resuelve en el panel, no en el chat (informe, consulta, corrección).
+  // En esta etapa el chat solo captura; informes/búsqueda/correcciones finas viven en la web.
+  // SOLO aplica a texto puro: cualquier media SIEMPRE se archiva (nunca se pierde un mensaje).
+  if (numMedia === 0 && (cls.intent === "consultar" || cls.intent === "comando" || cls.intent === "correccion")) {
+    const base = process.env.APP_BASE_URL?.replace(/\/$/, "");
+    const dest = base ? `👉 ${base}/obras` : "el panel";
+    const hi = name ? `${name}, ` : "";
+    let reply: string;
+    if (cls.intent === "consultar") {
+      reply = `${hi}eso lo buscás y lo ves en ${dest}.`;
+    } else if (cls.intent === "correccion") {
+      reply = `${hi}para corregir o deshacer algo ya guardado, entrá a ${dest}.`;
+    } else {
+      const wantsReport = /informe|reporte|link.*(cliente|avance)/i.test(body);
+      reply = wantsReport
+        ? `${hi}los informes los armás desde el panel, quedan más prolijos ${dest}.`
+        : `${hi}eso lo hacés desde ${dest}.`;
+    }
+    await sendWhatsApp(from, reply);
+    await logEvent(studioId, userId, "redirected_to_panel", { intent: cls.intent });
+    await finishJob(opts.jobId, "done");
+    return;
+  }
+
   const { data: allObras } = await admin.from("obras").select("id,name,is_inbox").eq("studio_id", studioId);
   const realObras = (allObras ?? []).filter((o) => !o.is_inbox);
   const inboxObra = (allObras ?? []).find((o) => o.is_inbox);
   const activeObra = await getActiveObra(studioId, userId);
   const primary = cls.filings[0];
-
-  // resolución de obra (cascada)
-  let targetObraId: string | null = primary?.obra_id ?? null;
-  let confident = (primary?.obra_confidence ?? 0) >= 0.65 && !!targetObraId;
-  if (!targetObraId && !cls.needs_clarification) {
-    if (activeObra) { targetObraId = activeObra; confident = true; }
-    else if (realObras.length === 1) { targetObraId = realObras[0].id; confident = true; }
-  }
+  // ¿El texto/transcripción nombra una obra existente? (ej. "obra de tincho" → Casa Tincho)
+  const hay = `${body} ${transcript ?? ""}`.toLowerCase();
+  const textMatchedObraId =
+    realObras.find((o) => {
+      const n = o.name.toLowerCase();
+      return hay.includes(n) || n.split(/\s+/).some((w) => w.length > 3 && hay.includes(w));
+    })?.id ?? null;
+  const decision = resolveRouting(cls, {
+    activeObra,
+    realObraIds: realObras.map((o) => o.id),
+    inboxObraId: inboxObra?.id ?? null,
+    textMatchedObraId,
+  });
+  const confident = decision.confident;
 
   // funnel: aclaración
-  if (!confident && (cls.needs_clarification || (!targetObraId && realObras.length > 1))) {
+  if (decision.action === "ask") {
     const options = cls.clarification_options?.length ? cls.clarification_options : realObras.slice(0, 3).map((o) => o.name);
     await admin.from("pending_clarifications").insert({
       studio_id: studioId, user_id: userId,
@@ -223,10 +295,10 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
     return;
   }
 
-  const obraId = targetObraId ?? inboxObra?.id;
+  const obraId = decision.targetObraId;
   if (!obraId) { await finishJob(opts.jobId, "done"); return; }
-  await fileEntry({ studioId, obraId, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? (confident ? 0.9 : 0.3), needsReview: !confident });
-  if (confident && targetObraId) await setActiveObra(studioId, userId, targetObraId);
+  await fileEntry({ studioId, obraId, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? (confident ? 0.9 : 0.3), needsReview: decision.needsReview });
+  if (decision.setsActiveObra) await setActiveObra(studioId, userId, decision.setsActiveObra);
 
   const obraName = realObras.find((o) => o.id === obraId)?.name ?? "tu Inbox";
   await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}. ${cls.summary_es || "Lo guardé"} — en ${obraName}.${!confident ? " (sin clasificar; ordenalo desde el panel)" : ""}`);

@@ -108,7 +108,7 @@ export async function classifyMessage(input: {
 Reglas:
 - Elegí obra SOLO de la lista del contexto. Si ninguna matchea con confianza, obra_id=null.
 - obra_confidence 0..1. Si <0.65 o hay 2+ obras candidatas plausibles → needs_clarification=true y clarification_options con los nombres de las obras candidatas (para responder "1"/"2").
-- content_type: foto=photo, nota de voz=audio, cotización con monto=quote, aprobación del cliente=approval, pago=payment, reclamo/problema=issue, visita=visit, entrega=delivery, texto suelto=note.
+- content_type = el TIPO de cosa. Por defecto usá el tipo NEUTRO de formato y NO escales: foto=photo · nota de voz=audio (sigue siendo audio AUNQUE el audio cuente un avance o un problema) · texto suelto=note. Usá un tipo "fuerte" SOLO con señal explícita en el texto: quote=cotización con monto · payment=pago ya hecho · approval=el cliente aprobó · visit=visita agendada · delivery=entrega/llegada de materiales · issue=problema/reclamo SOLO si lo dice claro ("urgente", "se rompió", "pérdida", "filtración", "reclamo"). Regla de duda: si dudás entre "problema" (issue) y algo neutro, NO uses issue. Pero si el texto nombra explícitamente una entrega ("llegaron"/"entregaron"), una aprobación, una visita, un pago o una cotización, usá ESE tipo aunque el mensaje también mencione un faltante o pendiente.
 - Montos en AR usan '.' de miles: "$480.000" = 480000. Moneda por defecto ARS.
 - Pregunta del usuario → intent=consultar. Saludo/meme/irrelevante → intent=ruido.
 - Un mensaje puede tocar varias obras → varios filings.

@@ -15,7 +15,7 @@ export async function createReportAction(_prev: ReportState, formData: FormData)
   const photoIds = formData.getAll("photo").map(String).filter(Boolean);
 
   if (!obraId) return { error: "Falta la obra." };
-  if (photoIds.length === 0) return { error: "Elegí al menos una foto." };
+  // Los informes se pueden generar sin fotos (con título + nota); las fotos son opcionales.
 
   try {
     const token = await createReport({

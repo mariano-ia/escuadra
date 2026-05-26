@@ -19,12 +19,21 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
   const { data: obra } = await sb.from("obras").select("*").eq("id", id).maybeSingle();
   if (!obra) notFound();
 
-  const [{ data: entries }, { data: photos }] = await Promise.all([
+  const [{ data: entries }, { data: photos }, { data: audios }] = await Promise.all([
     sb.from("timeline_entries").select("id, type, body_text, occurred_at, needs_review").eq("obra_id", id).order("occurred_at", { ascending: false }).limit(100),
     sb.from("photos").select("id, storage_path, caption, created_at").eq("obra_id", id).order("created_at", { ascending: false }).limit(60),
+    // Audios de esta obra (media_assets no tiene obra_id → join a su timeline_entry).
+    sb.from("media_assets").select("storage_path, timeline_entry_id, timeline_entries!inner(obra_id)").eq("kind", "audio").eq("timeline_entries.obra_id", id).limit(100),
   ]);
 
-  const urls = await signedUrls((photos ?? []).map((p) => p.storage_path));
+  // entry_id → storage_path del audio, para mostrar el reproductor en su renglón del timeline.
+  const audioByEntry = new Map<string, string>();
+  for (const a of audios ?? []) if (a.timeline_entry_id) audioByEntry.set(a.timeline_entry_id, a.storage_path);
+
+  const urls = await signedUrls([
+    ...(photos ?? []).map((p) => p.storage_path),
+    ...(audios ?? []).map((a) => a.storage_path),
+  ]);
 
   return (
     <div>
@@ -76,19 +85,24 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
         ) : (
           <ul className="border-t border-rule-soft">
             {entries.map((e) => (
-              <li key={e.id} className="flex items-baseline gap-4 py-3 border-b border-rule-soft">
-                <span className="font-display text-[0.62rem] tracking-[0.18em] uppercase text-grey-soft w-24 shrink-0">
+              <li key={e.id} className="flex items-start gap-4 py-3 border-b border-rule-soft">
+                <span className="font-display text-[0.62rem] tracking-[0.18em] uppercase text-grey-soft w-24 shrink-0 pt-0.5">
                   {TYPE_LABEL[e.type] ?? e.type}
                 </span>
-                <span className="flex-1 text-sm text-ink">
-                  {e.body_text || <span className="text-grey-soft">—</span>}
-                  {e.needs_review && (
-                    <span className="ml-2 text-[0.62rem] font-display tracking-[0.1em] uppercase text-grey-light">
-                      · sin clasificar
-                    </span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-ink">
+                    {e.body_text || <span className="text-grey-soft">—</span>}
+                    {e.needs_review && (
+                      <span className="ml-2 text-[0.62rem] font-display tracking-[0.1em] uppercase text-grey-light">
+                        · sin clasificar
+                      </span>
+                    )}
+                  </span>
+                  {audioByEntry.get(e.id) && urls[audioByEntry.get(e.id)!] && (
+                    <audio controls preload="none" src={urls[audioByEntry.get(e.id)!]} className="mt-2 w-full max-w-sm" />
                   )}
-                </span>
-                <span className="text-xs text-grey-light shrink-0">{fmtDate(e.occurred_at)}</span>
+                </div>
+                <span className="text-xs text-grey-light shrink-0 pt-0.5">{fmtDate(e.occurred_at)}</span>
               </li>
             ))}
           </ul>

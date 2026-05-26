@@ -122,3 +122,15 @@ export async function createObra(params: {
   await admin.rpc("create_default_albums", { p_obra: obra.id, p_studio: params.studioId });
   return obra.id;
 }
+
+/** Reasigna una entry del Inbox (o de cualquier obra) a otra obra, arrastrando sus adjuntos. */
+export async function moveEntryToObra(opts: { studioId: string; entryId: string; obraId: string }): Promise<void> {
+  const admin = createAdminClient();
+  const { entryId: e, studioId: st, obraId: ob } = opts;
+  await admin.from("timeline_entries").update({ obra_id: ob, needs_review: false }).eq("id", e).eq("studio_id", st);
+  await admin.from("photos").update({ obra_id: ob }).eq("timeline_entry_id", e).eq("studio_id", st);
+  await admin.from("quotes").update({ obra_id: ob }).eq("timeline_entry_id", e).eq("studio_id", st);
+  await admin.from("payments").update({ obra_id: ob }).eq("timeline_entry_id", e).eq("studio_id", st);
+  await admin.from("approvals").update({ obra_id: ob }).eq("timeline_entry_id", e).eq("studio_id", st);
+  await admin.from("issues").update({ obra_id: ob }).eq("timeline_entry_id", e).eq("studio_id", st);
+}
