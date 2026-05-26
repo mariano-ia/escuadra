@@ -236,6 +236,36 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   // --- Intención que se resuelve en el panel, no en el chat (informe, consulta, corrección).
   // En esta etapa el chat solo captura; informes/búsqueda/correcciones finas viven en la web.
   // SOLO aplica a texto puro: cualquier media SIEMPRE se archiva (nunca se pierde un mensaje).
+  // Corrección que reasigna a una obra ("asigná/mové lo último a la obra X") → INTERPRETAR:
+  // mover la última entry reciente a esa obra, en vez de guardar la frase literal.
+  if (numMedia === 0 && cls.intent === "correccion") {
+    const { data: obras2 } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
+    const b = body.toLowerCase();
+    const target = (obras2 ?? []).find((o) => {
+      const n = o.name.toLowerCase();
+      return b.includes(n) || n.split(/\s+/).some((w) => w.length > 3 && b.includes(w));
+    });
+    if (target) {
+      const { data: last } = await admin
+        .from("timeline_entries")
+        .select("id, obra_id")
+        .eq("studio_id", studioId)
+        .eq("created_by_user_id", userId)
+        .gte("created_at", new Date(Date.now() - 30 * 60 * 1000).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (last && last.obra_id !== target.id) {
+        await moveEntryToObra({ studioId, entryId: last.id, obraId: target.id });
+        await setActiveObra(studioId, userId, target.id);
+        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, moví lo último a ${target.name}. Ahora trabajás en esa obra.`);
+        await logEvent(studioId, userId, "correction_move", { obra_id: target.id });
+        await finishJob(opts.jobId, "done");
+        return;
+      }
+    }
+  }
+
   if (numMedia === 0 && (cls.intent === "consultar" || cls.intent === "comando" || cls.intent === "correccion")) {
     const base = process.env.APP_BASE_URL?.replace(/\/$/, "");
     const dest = base ? `👉 ${base}/obras` : "el panel";
