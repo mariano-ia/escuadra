@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/db/supabase";
 import { verifyTwilioSignature } from "@/lib/twilio/verify";
 import { sendWhatsApp } from "@/lib/twilio/client";
 import { extractCode, resolveSender, tryLinkByCode } from "@/lib/ingest/onboarding";
-import { enqueueJob } from "@/lib/jobs/queue";
+import { enqueueJob, olderPendingCount } from "@/lib/jobs/queue";
 import { processInbound } from "@/lib/ingest/process";
 import { GROUPING_WINDOW_MS } from "@/lib/ingest/grouping";
 import { rateLimit } from "@/lib/ratelimit/postgres";
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       body: body || null,
       raw: params,
     })
-    .select("id")
+    .select("id, received_at")
     .single();
 
   if (inbound) {
@@ -96,6 +96,7 @@ export async function POST(req: NextRequest) {
     if (job) {
       const jobId = job.id;
       const inboundId = inbound.id;
+      const receivedAt = inbound.received_at;
       after(async () => {
         try {
           if (numMedia > 0) {
@@ -103,6 +104,12 @@ export async function POST(req: NextRequest) {
             await new Promise((r) => setTimeout(r, GROUPING_WINDOW_MS));
             await processInbound({ jobId, inboundId, groupWindow: true });
           } else {
+            // Procesar EN ORDEN por remitente: esperar a que terminen los mensajes anteriores
+            // (evita la carrera al leer/fijar la "obra activa"). Máx ~8s para no trabarse.
+            for (let i = 0; i < 16; i++) {
+              if ((await olderPendingCount(phone, sender.studioId, receivedAt)) === 0) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
             await processInbound({ jobId, inboundId });
           }
         } catch (e) {

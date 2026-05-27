@@ -87,6 +87,28 @@ export async function finishJobs(jobIds: string[], status: "done" | "awaiting_re
   await admin.from("processing_jobs").update({ status }).in("id", jobIds);
 }
 
+/**
+ * Cuántos mensajes ANTERIORES del mismo remitente siguen pendientes y "vencidos"
+ * (queued/processing, due, llegados antes que el actual y en los últimos 5 min).
+ * Sirve para procesar EN ORDEN y evitar la carrera sobre la "obra activa".
+ * Excluye media diferida (next_attempt_at futuro) para no esperarla.
+ */
+export async function olderPendingCount(fromPhone: string, studioId: string, beforeIso: string): Promise<number> {
+  const admin = createAdminClient();
+  const nowIso = new Date().toISOString();
+  const sinceIso = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { count } = await admin
+    .from("processing_jobs")
+    .select("id, inbound_messages!inner(from_phone, received_at)", { count: "exact", head: true })
+    .eq("studio_id", studioId)
+    .in("status", ["queued", "processing"])
+    .lte("next_attempt_at", nowIso)
+    .eq("inbound_messages.from_phone", fromPhone)
+    .lt("inbound_messages.received_at", beforeIso)
+    .gte("inbound_messages.received_at", sinceIso);
+  return count ?? 0;
+}
+
 export async function failJob(id: string, attempts: number, maxAttempts: number, err: string) {
   const admin = createAdminClient();
   const backoffSec = Math.min(60 * 2 ** attempts, 3600);
