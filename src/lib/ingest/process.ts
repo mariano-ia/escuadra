@@ -91,12 +91,17 @@ async function fileEntry(opts: {
   let albumId: string | null = null;
   if (type === "photo" && opts.filing?.album_hint) albumId = await findOrCreateAlbum(opts.studioId, opts.obraId, opts.filing.album_hint);
 
-  const { data: entry } = await admin.from("timeline_entries").insert({
+  const { data: entry, error: entryErr } = await admin.from("timeline_entries").insert({
     studio_id: opts.studioId, obra_id: opts.obraId, type, created_by_user_id: opts.userId,
     body_text: [opts.body, opts.transcript].filter(Boolean).join("\n") || null,
     source: "whatsapp", inbound_message_id: opts.inboundId, confidence: opts.confidence, needs_review: opts.needsReview,
   }).select("id").single();
-  if (!entry) return;
+  // No tragar el error: un fallo acá significaría archivar "en silencio" (chat confirma, nada se guarda).
+  // Lanzamos para que el job quede visible/reintentable en vez de perder el mensaje.
+  if (entryErr || !entry) {
+    console.error("[ingest] fileEntry: insert de timeline_entries falló", { obraId: opts.obraId, type, err: entryErr?.message });
+    throw entryErr ?? new Error("timeline_entries insert devolvió null");
+  }
 
   for (const s of opts.stored) {
     if (s.isImage) {

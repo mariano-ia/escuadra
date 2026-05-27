@@ -30,7 +30,12 @@ export type RoutingDecision = {
 /** Cascada de resolución de obra (espejo de processInbound). Gana la primera que aplica. */
 export function resolveRouting(cls: Classification, state: RoutingState): RoutingDecision {
   const primary = cls.filings?.[0];
-  let targetObraId: string | null = primary?.obra_id ?? null;
+  // SEGURIDAD (C5): el obra_id que devuelve el LLM SOLO se confía si pertenece al estudio.
+  // Un id alucinado o inválido se descarta y se cae a la cascada (texto → activa → única →
+  // preguntar/Inbox). Si se confiara, el insert con ese obra_id falla y el mensaje se perdería
+  // en silencio (chat confirma, nada queda archivado).
+  const claimed = primary?.obra_id ?? null;
+  let targetObraId: string | null = claimed && state.realObraIds.includes(claimed) ? claimed : null;
   let confident = (primary?.obra_confidence ?? 0) >= 0.65 && !!targetObraId;
 
   // El texto nombra una obra existente (ej. "obra de tincho" → Casa Tincho).

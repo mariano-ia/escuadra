@@ -24,6 +24,22 @@ describe("resolveRouting (cascada de obra)", () => {
     expect(d.setsActiveObra).toBe("a");
   });
 
+  it("obra_id alucinado por el LLM (no pertenece al estudio) → NUNCA se archiva ahí (C5)", () => {
+    // El clasificador devolvió un id inventado ("ssdsoij11223") con confianza alta.
+    // Si lo confiáramos, el insert con ese obra_id falla y el mensaje se pierde en silencio.
+    const d = resolveRouting(cls({ obra_id: "ssdsoij11223", conf: 0.95 }), tres);
+    expect(d.targetObraId).not.toBe("ssdsoij11223");
+    expect(d.action).toBe("ask"); // 2+ obras y sin otra señal → preguntar
+    expect(d.targetObraId).toBe("inbox");
+    expect(d.confident).toBe(false);
+  });
+
+  it("obra_id alucinado pero CON obra activa → usa la activa, ignora el id falso", () => {
+    const d = resolveRouting(cls({ obra_id: "id-que-no-existe", conf: 0.95 }), { ...tres, activeObra: "b" });
+    expect(d.targetObraId).toBe("b");
+    expect(d.confident).toBe(true);
+  });
+
   it("sin obra en el mensaje pero CON obra activa → hereda la activa (memoria de sesión)", () => {
     const d = resolveRouting(cls({ obra_id: null }), { ...tres, activeObra: "b" });
     expect(d.action).toBe("file");
