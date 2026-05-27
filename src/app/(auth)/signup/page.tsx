@@ -36,6 +36,12 @@ export default function SignupPage() {
             Iniciá sesión
           </Link>
         </p>
+        <p className="text-xs text-grey-soft mt-8">
+          Al crear tu cuenta aceptás los{" "}
+          <Link href="/terminos" className="text-ink underline underline-offset-2">Términos</Link>{" "}
+          y la{" "}
+          <Link href="/privacidad" className="text-ink underline underline-offset-2">Política de Privacidad</Link>.
+        </p>
       </div>
     </main>
   );

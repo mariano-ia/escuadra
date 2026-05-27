@@ -34,23 +34,13 @@ export const CORPUS: EvalCase[] = [
     input: { text: "te paso lo del avance de Belgrano, quedó lindo el contrapiso del baño" },
     expect: { intent: "archivar", obraId: "obra-belgrano", shouldClarify: false },
   },
-  {
-    id: "AM-02", family: "AM", note: "sin pista de obra + 3 candidatas → debe pedir aclaración",
-    fixture: "tres-obras",
-    input: { text: "che guardá esto que es importante" },
-    expect: { obraId: null, shouldClarify: true },
-  },
+  // NOTA: el "guardá esto" sin adjunto (ex AM-02/AM-04) ya NO es responsabilidad del clasificador:
+  // lo resuelve isBareSaveLeadIn() antes del LLM (acuse-invitación). Ver route.test.ts.
   {
     id: "AM-03", family: "AM", note: "obra mencionada que NO está en la lista → no inventar",
     fixture: "tres-obras",
     input: { text: "esto es de la obra de Villa Crespo, la nueva" },
     expect: { obraId: null },
-  },
-  {
-    id: "AM-04", family: "AM", note: "estudio con una sola obra y sin caption → no debería preguntar",
-    fixture: "una-obra",
-    input: { text: "guardá esto por favor" },
-    expect: { shouldClarify: false },
   },
   {
     id: "AM-05", family: "AM", note: "ruteo por nombre de cliente (Familia Roca → Belgrano)",

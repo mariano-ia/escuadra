@@ -10,6 +10,8 @@ const PUBLIC_PREFIXES = [
   "/signup",
   "/accept-invite",
   "/r/", // informes públicos
+  "/privacidad", // política de privacidad (pública)
+  "/terminos", // términos y condiciones (públicos)
   "/api/", // webhooks, jobs, oauth callbacks
 ];
 

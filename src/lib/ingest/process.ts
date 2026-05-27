@@ -6,7 +6,7 @@ import { uploadMedia } from "@/lib/storage";
 import { transcribeAudio } from "@/lib/whisper/transcribe";
 import { classifyMessage, type Classification, type Filing } from "@/lib/claude/classify";
 import { finishJob } from "@/lib/jobs/queue";
-import { resolveRouting, parseObraCommand } from "@/lib/ingest/route";
+import { resolveRouting, parseObraCommand, isBareSaveLeadIn } from "@/lib/ingest/route";
 import { moveEntryToObra } from "@/lib/db/repos";
 import { driveConfigured, syncPhotoToDrive } from "@/lib/cloud/gdrive";
 import type { Json } from "@/lib/db/types";
@@ -199,6 +199,15 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
       await finishJob(opts.jobId, "done");
       return;
     }
+  }
+
+  // --- "Guardá esto" sin contenido: acuse-invitación cálido, NO crea entrada vacía ---
+  // (el contenido suele venir en el próximo mensaje; si no llega, no quedó basura).
+  if (parseInt(raw.NumMedia ?? "0", 10) === 0 && isBareSaveLeadIn(body)) {
+    await sendWhatsApp(from, `Dale${name ? `, ${name}` : ""} 👍 mandámelo y lo guardo.`);
+    await logEvent(studioId, userId, "save_leadin_invite", {});
+    await finishJob(opts.jobId, "done");
+    return;
   }
 
   // --- Descargar media ---

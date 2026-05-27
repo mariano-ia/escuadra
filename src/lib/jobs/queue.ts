@@ -40,6 +40,47 @@ export async function finishJob(id: string, status: "done" | "awaiting_reply") {
   await admin.from("processing_jobs").update({ status }).eq("id", id);
 }
 
+export type PendingJob = { jobId: string; inboundId: string; receivedAtMs: number };
+
+/** Jobs aún 'queued' del mismo remitente (últimos ~5 min), para juntar una ráfaga en un avance. */
+export async function pendingInboundsForSender(fromPhone: string, studioId: string): Promise<PendingJob[]> {
+  const admin = createAdminClient();
+  const sinceIso = new Date(Date.now() - 5 * 60_000).toISOString();
+  const { data } = await admin
+    .from("processing_jobs")
+    .select("id, inbound_message_id, inbound_messages!inner(from_phone, received_at)")
+    .eq("studio_id", studioId)
+    .eq("status", "queued")
+    .eq("inbound_messages.from_phone", fromPhone)
+    .gte("inbound_messages.received_at", sinceIso)
+    .order("created_at", { ascending: true });
+  return (data ?? [])
+    .filter((j): j is typeof j & { inbound_message_id: string } => !!j.inbound_message_id)
+    .map((j) => {
+      const im = j.inbound_messages as unknown as { received_at: string };
+      return { jobId: j.id, inboundId: j.inbound_message_id, receivedAtMs: new Date(im.received_at).getTime() };
+    });
+}
+
+/** Reclama varios jobs de forma atómica (queued→processing). Devuelve los ids efectivamente tomados. */
+export async function claimJobs(jobIds: string[]): Promise<string[]> {
+  if (jobIds.length === 0) return [];
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("processing_jobs")
+    .update({ status: "processing", locked_at: new Date().toISOString() })
+    .in("id", jobIds)
+    .eq("status", "queued")
+    .select("id");
+  return (data ?? []).map((j) => j.id);
+}
+
+export async function finishJobs(jobIds: string[], status: "done" | "awaiting_reply") {
+  if (jobIds.length === 0) return;
+  const admin = createAdminClient();
+  await admin.from("processing_jobs").update({ status }).in("id", jobIds);
+}
+
 export async function failJob(id: string, attempts: number, maxAttempts: number, err: string) {
   const admin = createAdminClient();
   const backoffSec = Math.min(60 * 2 ** attempts, 3600);

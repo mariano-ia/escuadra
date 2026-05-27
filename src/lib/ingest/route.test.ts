@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Classification } from "@/lib/claude/classify";
-import { resolveRouting, parseObraCommand, type RoutingState } from "./route";
+import { resolveRouting, parseObraCommand, isBareSaveLeadIn, type RoutingState } from "./route";
 
 function cls(over: { obra_id?: string | null; conf?: number; needs?: boolean }): Classification {
   return {
@@ -77,5 +77,21 @@ describe("parseObraCommand", () => {
   it("ignora texto que no es comando", () => {
     expect(parseObraCommand("colocaron las ventanas del piso 2")).toBeNull();
     expect(parseObraCommand("hola")).toBeNull();
+  });
+});
+
+describe("isBareSaveLeadIn (guardá esto sin contenido)", () => {
+  it("detecta lead-ins vacíos (incluso con acentos y muletillas)", () => {
+    expect(isBareSaveLeadIn("guardá esto")).toBe(true);
+    expect(isBareSaveLeadIn("che guardá esto que es importante")).toBe(true);
+    expect(isBareSaveLeadIn("mirá esto")).toBe(true);
+    expect(isBareSaveLeadIn("te mando algo")).toBe(true);
+    expect(isBareSaveLeadIn("guardame esto porfa")).toBe(true);
+  });
+  it("NO matchea cuando hay contenido real", () => {
+    expect(isBareSaveLeadIn("guardá esto: el plomero cobra 480 lucas")).toBe(false);
+    expect(isBareSaveLeadIn("colocaron las ventanas del piso 2")).toBe(false);
+    expect(isBareSaveLeadIn("obra belgrano")).toBe(false);
+    expect(isBareSaveLeadIn("aprobado el presupuesto de pintura en Núñez")).toBe(false);
   });
 });

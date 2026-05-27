@@ -75,3 +75,26 @@ export function parseObraCommand(body: string): string | null {
   const m = body.match(/^(?:obra|trabajando en|pasame a|estoy en la? de)\s+(.{2,60})$/i);
   return m ? m[1].trim() : null;
 }
+
+/**
+ * "Guardá esto" SIN contenido: el usuario pide guardar/mirar algo pero el mensaje no trae
+ * ningún dato sustantivo (el adjunto se chequea aparte). Ej: "guardá esto", "che mirá esto que
+ * es importante", "te mando algo". → acuse-invitación, no se crea entrada vacía.
+ * Conservador: exige un verbo de guardar/mirar/mandar y que, sacando muletillas, no quede nada.
+ */
+export function isBareSaveLeadIn(body: string): boolean {
+  const t = body
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // sacar acentos
+    .replace(/[^\p{L}\p{N}\s]/gu, " ") // sacar puntuación/emojis
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t || t.length > 50) return false; // mensaje largo → seguro tiene contenido
+  const SAVE = /\b(guarda|guardame|guardalo|guardala|mira|mirate|fijate|anota|anotame|mando|paso|envio|reenvio|va|van)\b/g;
+  if (!SAVE.test(t)) return false;
+  const FILLER = /\b(che|dale|porfa|por|favor|importante|urgente|que|es|esto|eso|esta|este|algo|lo|la|el|un|una|cosa|aca|aqui|ya|ahora|ahi|te|me|capo|amigo|gracias)\b/g;
+  const rest = t.replace(SAVE, " ").replace(FILLER, " ").replace(/\s+/g, " ").trim();
+  return rest.length === 0;
+}
