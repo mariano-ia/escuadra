@@ -2,11 +2,17 @@ import "server-only";
 import { createAdminClient } from "@/lib/db/supabase";
 import type { Tables } from "@/lib/db/types";
 
-export async function enqueueJob(inboundMessageId: string, studioId: string | null) {
+export async function enqueueJob(inboundMessageId: string, studioId: string | null, delayMs = 0) {
   const admin = createAdminClient();
+  // delayMs > 0 retrasa la elegibilidad del cron (next_attempt_at): para media, así el cron
+  // no procesa el mensaje "suelto" mientras el after() está agrupando la ráfaga (~90s).
   const { data } = await admin
     .from("processing_jobs")
-    .insert({ inbound_message_id: inboundMessageId, studio_id: studioId })
+    .insert({
+      inbound_message_id: inboundMessageId,
+      studio_id: studioId,
+      next_attempt_at: new Date(Date.now() + delayMs).toISOString(),
+    })
     .select()
     .single();
   return data;

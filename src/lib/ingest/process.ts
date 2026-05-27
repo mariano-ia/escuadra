@@ -5,8 +5,9 @@ import { downloadTwilioMedia, sendWhatsApp } from "@/lib/twilio/client";
 import { uploadMedia } from "@/lib/storage";
 import { transcribeAudio } from "@/lib/whisper/transcribe";
 import { classifyMessage, type Classification, type Filing } from "@/lib/claude/classify";
-import { finishJob } from "@/lib/jobs/queue";
+import { finishJob, finishJobs, pendingInboundsForSender, claimJobs } from "@/lib/jobs/queue";
 import { resolveRouting, parseObraCommand, isBareSaveLeadIn } from "@/lib/ingest/route";
+import { combineBodies } from "@/lib/ingest/grouping";
 import { moveEntryToObra } from "@/lib/db/repos";
 import { driveConfigured, syncPendingPhotos } from "@/lib/cloud/gdrive";
 import type { Json } from "@/lib/db/types";
@@ -135,8 +136,23 @@ function firstName(full: string | null): string {
   return full?.trim().split(/\s+/)[0] ?? "";
 }
 
-/** Procesa un mensaje entrante: descarga media, transcribe, clasifica, archiva y confirma. */
-export async function processInbound(opts: { jobId: string; inboundId: string }): Promise<void> {
+/** Conteo escueto para los acuses: "5 fotos", "1 audio", "3 fotos y 1 audio".
+ *  El acuse dice CUÁNTAS cosas y DÓNDE — nunca describe el contenido. */
+function countPhrase(stored: Stored[]): string {
+  const photos = stored.filter((s) => s.isImage).length;
+  const audios = stored.filter((s) => s.isAudio).length;
+  const others = stored.length - photos - audios;
+  const parts: string[] = [];
+  if (photos) parts.push(`${photos} ${photos === 1 ? "foto" : "fotos"}`);
+  if (audios) parts.push(`${audios} ${audios === 1 ? "audio" : "audios"}`);
+  if (others) parts.push(`${others} ${others === 1 ? "archivo" : "archivos"}`);
+  return parts.join(" y ") || "lo que mandaste";
+}
+
+/** Procesa un mensaje entrante: descarga media, transcribe, clasifica, archiva y confirma.
+ *  Con groupWindow=true (lo llama el webhook tras la ventana), junta la ráfaga del remitente
+ *  en UN avance con UN acuse. El cron lo llama sin groupWindow (backstop, mensaje suelto). */
+export async function processInbound(opts: { jobId: string; inboundId: string; groupWindow?: boolean }): Promise<void> {
   const admin = createAdminClient();
   const { data: inbound } = await admin.from("inbound_messages").select("*").eq("id", opts.inboundId).single();
   if (!inbound?.studio_id || !inbound.user_id) {
@@ -147,7 +163,7 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
   const userId = inbound.user_id;
   const raw = (inbound.raw ?? {}) as RawParams;
   const from = inbound.from_phone ?? "";
-  const body = (inbound.body ?? "").trim();
+  let body = (inbound.body ?? "").trim();
   const { data: profile } = await admin.from("profiles").select("full_name").eq("id", userId).maybeSingle();
   const name = firstName(profile?.full_name ?? null);
 
@@ -173,14 +189,27 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
         chosen = (obras ?? []).find((o) => q.includes(o.name.toLowerCase()) || o.name.toLowerCase().includes(q));
       }
       if (chosen) {
+        // Mover TODA la ráfaga reciente sin clasificar del usuario (no solo un mensaje):
+        // si la ráfaga quedó partida en varias entries en el Inbox, se mueven todas juntas.
+        const ids = new Set<string>();
+        const { data: inboxRow } = await admin.from("obras").select("id").eq("studio_id", studioId).eq("is_inbox", true).maybeSingle();
+        if (inboxRow?.id) {
+          const { data: recent } = await admin
+            .from("timeline_entries").select("id")
+            .eq("studio_id", studioId).eq("created_by_user_id", userId).eq("obra_id", inboxRow.id)
+            .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+          for (const e of recent ?? []) ids.add(e.id);
+        }
         const pe = (clar.partial_extraction as { inbound_id?: string }) ?? {};
         if (pe.inbound_id) {
           const { data: ents } = await admin.from("timeline_entries").select("id").eq("inbound_message_id", pe.inbound_id).eq("studio_id", studioId);
-          for (const e of ents ?? []) await moveEntryToObra({ studioId, entryId: e.id, obraId: chosen.id });
+          for (const e of ents ?? []) ids.add(e.id);
         }
+        for (const id of ids) await moveEntryToObra({ studioId, entryId: id, obraId: chosen.id });
+        const movedN = ids.size;
         await admin.from("pending_clarifications").update({ status: "resolved" }).eq("id", clar.id);
         await setActiveObra(studioId, userId, chosen.id);
-        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, lo moví a ${chosen.name}. Ahora trabajás en esa obra.`);
+        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, ${movedN > 1 ? `moví las ${movedN} a` : "lo moví a"} ${chosen.name}. Ahora trabajás en esa obra.`);
         await logEvent(studioId, userId, "clarification_resolved", { obra_id: chosen.id });
         await finishJob(opts.jobId, "done");
         return;
@@ -215,23 +244,55 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
     return;
   }
 
-  // --- Descargar media ---
+  // --- Agrupación de la ráfaga (ventana de avance) ---
+  // Con groupWindow (el webhook ya esperó ~90s), juntamos los mensajes del MISMO remitente
+  // que siguen en cola: WhatsApp manda cada foto suelta, pero las archivamos como UN avance.
   const numMedia = parseInt(raw.NumMedia ?? "0", 10) || 0;
+  const burstJobIds: string[] = [opts.jobId];
+  const burstInboundIds: string[] = [opts.inboundId];
+  if (opts.groupWindow && numMedia > 0) {
+    const pending = await pendingInboundsForSender(from, studioId);
+    const myMs = new Date(inbound.received_at).getTime();
+    // Si llegó algo MÁS NUEVO del remitente, que cierre ESE handler (no dupliquemos la ráfaga).
+    if (pending.some((p) => p.inboundId !== opts.inboundId && p.receivedAtMs > myMs)) return;
+    const sibs = pending.filter((p) => p.inboundId !== opts.inboundId);
+    const claimed = await claimJobs(sibs.map((s) => s.jobId));
+    for (const s of sibs) {
+      if (claimed.includes(s.jobId)) {
+        burstJobIds.push(s.jobId);
+        burstInboundIds.push(s.inboundId);
+      }
+    }
+  }
+
+  // --- Descargar media de TODO el avance (trigger + ráfaga), en orden cronológico ---
+  const burstInbounds =
+    burstInboundIds.length > 1
+      ? ((await admin.from("inbound_messages").select("*").in("id", burstInboundIds)).data ?? [inbound]).sort(
+          (a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime(),
+        )
+      : [inbound];
+  body = combineBodies(burstInbounds.map((b) => (b.body ?? "").trim()));
+
   const stored: Stored[] = [];
   const images: { mediaType: string; dataBase64: string }[] = [];
   let transcript: string | null = null;
-  for (let i = 0; i < numMedia; i++) {
-    const url = raw[`MediaUrl${i}`];
-    const ct = raw[`MediaContentType${i}`] ?? "application/octet-stream";
-    if (!url) continue;
-    try {
-      const { bytes, contentType } = await downloadTwilioMedia(url);
-      const path = await uploadMedia({ studioId, subpath: `incoming/${randomUUID()}.${ext(contentType)}`, bytes, contentType });
-      stored.push({ path, contentType, isImage: isImage(contentType), isAudio: isAudio(contentType) });
-      if (isImage(contentType) && images.length < 4) images.push({ mediaType: contentType, dataBase64: bytes.toString("base64") });
-      if (isAudio(contentType) && !transcript) transcript = await transcribeAudio(bytes, `audio.${ext(contentType)}`);
-    } catch (e) {
-      console.error("[ingest] media fail", e);
+  for (const ib of burstInbounds) {
+    const r = (ib.raw ?? {}) as RawParams;
+    const n = parseInt(r.NumMedia ?? "0", 10) || 0;
+    for (let i = 0; i < n; i++) {
+      const url = r[`MediaUrl${i}`];
+      const ct = r[`MediaContentType${i}`] ?? "application/octet-stream";
+      if (!url) continue;
+      try {
+        const { bytes, contentType } = await downloadTwilioMedia(url);
+        const path = await uploadMedia({ studioId, subpath: `incoming/${randomUUID()}.${ext(contentType)}`, bytes, contentType });
+        stored.push({ path, contentType, isImage: isImage(contentType), isAudio: isAudio(contentType) });
+        if (isImage(contentType) && images.length < 4) images.push({ mediaType: contentType, dataBase64: bytes.toString("base64") });
+        if (isAudio(contentType) && !transcript) transcript = await transcribeAudio(bytes, `audio.${ext(contentType)}`);
+      } catch (e) {
+        console.error("[ingest] media fail", e);
+      }
     }
   }
 
@@ -334,19 +395,20 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
     });
     if (inboxObra) await fileEntry({ studioId, obraId: inboxObra.id, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? 0, needsReview: true });
     const numbered = options.map((o, i) => `${i + 1} ${o}`).join(" · ");
-    await sendWhatsApp(from, `${cls.summary_es ? cls.summary_es + ". " : ""}${name ? name + ", " : ""}no tengo claro de qué obra es. ${numbered}${options.length ? " · " : ""}o lo dejo en tu Inbox.`);
+    const ask = stored.length > 1 ? `¿dónde van estas ${countPhrase(stored)}?` : "¿de qué obra es esto?";
+    await sendWhatsApp(from, `${name ? name + ", " : ""}${ask} ${numbered}${options.length ? " · " : ""}o queda en tu Inbox.`);
     await logEvent(studioId, userId, "clarification_asked", {});
-    await finishJob(opts.jobId, "awaiting_reply");
+    await finishJobs(burstJobIds, "awaiting_reply");
     return;
   }
 
   const obraId = decision.targetObraId;
-  if (!obraId) { await finishJob(opts.jobId, "done"); return; }
+  if (!obraId) { await finishJobs(burstJobIds, "done"); return; }
   await fileEntry({ studioId, obraId, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? (confident ? 0.9 : 0.3), needsReview: decision.needsReview });
   if (decision.setsActiveObra) await setActiveObra(studioId, userId, decision.setsActiveObra);
 
   const obraName = realObras.find((o) => o.id === obraId)?.name ?? "tu Inbox";
-  await sendWhatsApp(from, `Dale${name ? `, ${name}` : ""} 👌 ${cls.summary_es || "lo guardé"} — quedó en ${obraName}.${!confident ? " Lo dejé sin obra fija; cuando puedas lo ordenás desde el panel 🙂" : ""}`);
+  await sendWhatsApp(from, `Listo${name ? `, ${name}` : ""} 👌 guardé ${countPhrase(stored)} en ${obraName}.${!confident ? " Lo dejé sin obra fija; cuando puedas lo ordenás desde el panel 🙂" : ""}`);
   await logEvent(studioId, userId, "filed", { obra_id: obraId, confident });
 
   // Backup en Google Drive (opt-in por estudio). Best-effort: nunca rompe el archivado.
@@ -359,5 +421,5 @@ export async function processInbound(opts: { jobId: string; inboundId: string })
     }
   }
 
-  await finishJob(opts.jobId, "done");
+  await finishJobs(burstJobIds, "done");
 }

@@ -5,10 +5,13 @@ import { sendWhatsApp } from "@/lib/twilio/client";
 import { extractCode, resolveSender, tryLinkByCode } from "@/lib/ingest/onboarding";
 import { enqueueJob } from "@/lib/jobs/queue";
 import { processInbound } from "@/lib/ingest/process";
+import { GROUPING_WINDOW_MS } from "@/lib/ingest/grouping";
 import { rateLimit } from "@/lib/ratelimit/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// La ventana de agrupación mantiene viva la función ~90s tras la última foto (requiere Vercel Pro).
+export const maxDuration = 160;
 
 function twiml() {
   return new NextResponse('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', {
@@ -86,13 +89,22 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (inbound) {
-    const job = await enqueueJob(inbound.id, sender.studioId);
+    const numMedia = parseInt(params.NumMedia ?? "0", 10) || 0;
+    // Media: el cron NO debe procesarlo suelto mientras agrupamos → lo encolamos con delay (5 min);
+    // el after() lo cierra antes, a los ~90s. Texto: sin delay (se procesa al instante).
+    const job = await enqueueJob(inbound.id, sender.studioId, numMedia > 0 ? 5 * 60_000 : 0);
     if (job) {
       const jobId = job.id;
       const inboundId = inbound.id;
       after(async () => {
         try {
-          await processInbound({ jobId, inboundId });
+          if (numMedia > 0) {
+            // Ventana de avance: esperar a que la ráfaga del remitente se asiente, luego agrupar.
+            await new Promise((r) => setTimeout(r, GROUPING_WINDOW_MS));
+            await processInbound({ jobId, inboundId, groupWindow: true });
+          } else {
+            await processInbound({ jobId, inboundId });
+          }
         } catch (e) {
           console.error("[twilio] after processInbound", e);
         }
