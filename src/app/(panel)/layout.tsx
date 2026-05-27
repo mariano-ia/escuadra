@@ -90,6 +90,18 @@ export default async function PanelLayout({ children }: { children: React.ReactN
       </div>
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-5 sm:px-6 py-8">{children}</main>
+
+      <footer className="border-t border-rule mt-8">
+        <div className="max-w-6xl mx-auto px-5 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="font-display text-[0.58rem] tracking-[0.24em] uppercase text-grey-light">
+            © {new Date().getFullYear()} Escuadra
+          </p>
+          <nav className="flex items-center gap-5 text-xs text-grey-soft">
+            <Link href="/privacidad" className="hover:text-ink transition-colors">Privacidad</Link>
+            <Link href="/terminos" className="hover:text-ink transition-colors">Términos</Link>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
