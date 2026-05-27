@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getActiveStudio } from "@/lib/auth/session";
 import { freshOnboardingCode } from "@/lib/db/repos";
 import { createAdminClient } from "@/lib/db/supabase";
+import { syncPendingPhotos } from "@/lib/cloud/gdrive";
 
 export async function generateCodeAction() {
   const ctx = await getActiveStudio();
@@ -31,6 +32,15 @@ export async function updateStudioAction(formData: FormData) {
   if (name) await createAdminClient().from("studios").update({ name }).eq("id", ctx.studio.id);
   revalidatePath("/settings");
   redirect("/settings?saved=1");
+}
+
+export async function syncDriveAction() {
+  const ctx = await getActiveStudio();
+  if (!ctx) redirect("/login");
+  // backfill: sube hasta 40 fotos pendientes por click (viejas primero), idempotente.
+  const { synced, remaining } = await syncPendingPhotos(ctx.studio.id, { limit: 40, oldestFirst: true });
+  revalidatePath("/settings");
+  redirect(`/settings?drive=synced&n=${synced}&rem=${remaining}`);
 }
 
 export async function uploadLogoAction(formData: FormData) {

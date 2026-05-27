@@ -1,8 +1,14 @@
 import "server-only";
 import { createAdminClient } from "@/lib/db/supabase";
+import { downloadMedia } from "@/lib/storage";
 import { encrypt, decrypt } from "@/lib/crypto";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
+};
+const mimeFromPath = (p: string) => MIME_BY_EXT[(p.split(".").pop() ?? "").toLowerCase()] ?? "image/jpeg";
 
 function cfg() {
   const id = process.env.GOOGLE_OAUTH_CLIENT_ID;
@@ -104,8 +110,10 @@ export async function saveConnection(
   userId: string,
   tokens: { access_token: string; refresh_token?: string },
 ): Promise<void> {
+  const admin = createAdminClient();
+  const prev = await getConnection(studioId);
   const rootId = await ensureFolder(tokens.access_token, "Escuadra", null);
-  await createAdminClient()
+  await admin
     .from("cloud_sync_connections")
     .upsert(
       {
@@ -119,6 +127,11 @@ export async function saveConnection(
       },
       { onConflict: "studio_id,provider" },
     );
+  // Si cambió la cuenta/carpeta de Drive (root distinto), marcar todo como NO sincronizado
+  // para que el backfill suba las fotos al Drive nuevo. Si es el mismo Drive, no se toca (evita duplicados).
+  if (prev && prev.root_folder_id && prev.root_folder_id !== rootId) {
+    await admin.from("photos").update({ drive_synced_at: null }).eq("studio_id", studioId);
+  }
 }
 
 export async function getConnection(studioId: string): Promise<Conn | null> {
@@ -132,17 +145,57 @@ export async function getConnection(studioId: string): Promise<Conn | null> {
   return data;
 }
 
-/** Sube una foto a la carpeta de la obra dentro de "Escuadra" en el Drive del estudio. Best-effort. */
-export async function syncPhotoToDrive(opts: {
-  studioId: string;
-  obraName: string;
-  fileName: string;
-  mime: string;
-  bytes: Buffer;
-}): Promise<void> {
-  const conn = await getConnection(opts.studioId);
-  if (!conn?.refresh_token_enc) return;
+/** Cuántas fotos del estudio faltan subir a Drive (drive_synced_at null). 0 si no hay conexión. */
+export async function pendingDriveCount(studioId: string): Promise<number> {
+  const conn = await getConnection(studioId);
+  if (!conn?.refresh_token_enc) return 0;
+  const { count } = await createAdminClient()
+    .from("photos").select("id", { count: "exact", head: true })
+    .eq("studio_id", studioId).is("drive_synced_at", null);
+  return count ?? 0;
+}
+
+/**
+ * Sube a Drive las fotos pendientes (drive_synced_at null) de un estudio, en lotes.
+ * Cada foto se sube a la carpeta de su obra dentro de "Escuadra" y se marca como sincronizada
+ * (idempotente: no re-sube). Best-effort por foto. Lo usa la ingesta (lote chico, recientes
+ * primero) y el botón "Sincronizar" de Configuración (backfill, viejas primero).
+ */
+export async function syncPendingPhotos(
+  studioId: string,
+  opts?: { limit?: number; oldestFirst?: boolean },
+): Promise<{ synced: number; remaining: number }> {
+  const conn = await getConnection(studioId);
+  if (!conn?.refresh_token_enc) return { synced: 0, remaining: 0 };
+  const admin = createAdminClient();
+  const { data: pend } = await admin
+    .from("photos")
+    .select("id, storage_path, obras(name)")
+    .eq("studio_id", studioId)
+    .is("drive_synced_at", null)
+    .order("created_at", { ascending: opts?.oldestFirst ?? false })
+    .limit(opts?.limit ?? 12);
+  if (!pend?.length) return { synced: 0, remaining: 0 };
+
   const token = await refreshAccessToken(decrypt(conn.refresh_token_enc));
-  const folder = await ensureFolder(token, opts.obraName || "Sin clasificar", conn.root_folder_id);
-  await uploadFile(token, folder, opts.fileName, opts.mime, opts.bytes);
+  const folderCache = new Map<string, string>();
+  let synced = 0;
+  for (const p of pend) {
+    try {
+      const obraName = (p.obras as { name: string } | null)?.name || "Sin clasificar";
+      let folderId = folderCache.get(obraName);
+      if (!folderId) {
+        folderId = await ensureFolder(token, obraName, conn.root_folder_id);
+        folderCache.set(obraName, folderId);
+      }
+      const bytes = await downloadMedia(p.storage_path);
+      const fileName = p.storage_path.split("/").pop() || `${p.id}.jpg`;
+      await uploadFile(token, folderId, fileName, mimeFromPath(p.storage_path), bytes);
+      await admin.from("photos").update({ drive_synced_at: new Date().toISOString() }).eq("id", p.id);
+      synced++;
+    } catch (e) {
+      console.error("[drive] sync photo falló", p.id, e);
+    }
+  }
+  return { synced, remaining: await pendingDriveCount(studioId) };
 }

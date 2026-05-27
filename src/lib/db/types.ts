@@ -1022,6 +1022,7 @@ export type Database = {
           caption: string | null
           created_at: string
           created_by_user_id: string | null
+          drive_synced_at: string | null
           height: number | null
           id: string
           obra_id: string
@@ -1037,6 +1038,7 @@ export type Database = {
           caption?: string | null
           created_at?: string
           created_by_user_id?: string | null
+          drive_synced_at?: string | null
           height?: number | null
           id?: string
           obra_id: string
@@ -1052,6 +1054,7 @@ export type Database = {
           caption?: string | null
           created_at?: string
           created_by_user_id?: string | null
+          drive_synced_at?: string | null
           height?: number | null
           id?: string
           obra_id?: string

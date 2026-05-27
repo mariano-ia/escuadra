@@ -19,6 +19,14 @@ export async function uploadMedia(opts: {
   return full;
 }
 
+/** Descarga los bytes de un objeto del bucket (server-only). Para re-subir a Drive, etc. */
+export async function downloadMedia(path: string): Promise<Buffer> {
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage.from(BUCKET).download(path);
+  if (error || !data) throw error ?? new Error("no se pudo descargar " + path);
+  return Buffer.from(await data.arrayBuffer());
+}
+
 /** URL firmada de corta duración (server-only). Buckets son privados. */
 export async function signedUrl(path: string, expiresInSec = 3600): Promise<string> {
   const admin = createAdminClient();

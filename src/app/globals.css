@@ -39,6 +39,14 @@ h1, h2, h3, .font-display {
   letter-spacing: -0.02em;
 }
 
+/* Tailwind v4 ya no pone el cursor pointer en botones por defecto — lo reponemos. */
+button:not(:disabled), label[role="button"], [role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* Retícula de plano sutil para fondos de páginas amplias */
 .bg-grid {
   background-image:
