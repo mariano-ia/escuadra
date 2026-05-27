@@ -4,6 +4,8 @@ import { createServerClient } from "@/lib/db/supabase";
 import { signedUrls } from "@/lib/storage";
 import { SearchClient } from "@/app/(panel)/buscar/search-client";
 import { ZoomImage } from "@/components/zoom-image";
+import { Paginator } from "@/components/paginator";
+import { PAGE_SIZE } from "@/lib/ui/pagination";
 
 const TYPE_LABEL: Record<string, string> = {
   photo: "Fotos", audio: "Audio", text: "Nota", note: "Nota", quote: "Cotización",
@@ -14,19 +16,32 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-export default async function ObraDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ObraDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
+}) {
   const { id } = await params;
+  const page = Math.max(1, parseInt((await searchParams).page ?? "1", 10) || 1);
   const sb = await createServerClient();
 
   const { data: obra } = await sb.from("obras").select("*").eq("id", id).maybeSingle();
   if (!obra) notFound();
 
-  const [{ data: entries }, { data: photos }, { data: audios }] = await Promise.all([
-    sb.from("timeline_entries").select("id, type, body_text, occurred_at, needs_review").eq("obra_id", id).order("occurred_at", { ascending: false }).limit(100),
+  const fromRow = (page - 1) * PAGE_SIZE;
+  const [{ data: entries, count }, { data: photos }] = await Promise.all([
+    sb.from("timeline_entries").select("id, type, body_text, occurred_at, needs_review", { count: "exact" }).eq("obra_id", id).order("occurred_at", { ascending: false }).range(fromRow, fromRow + PAGE_SIZE - 1),
     sb.from("photos").select("id, storage_path, caption, created_at").eq("obra_id", id).order("created_at", { ascending: false }).limit(60),
-    // Audios de esta obra (media_assets no tiene obra_id → join a su timeline_entry).
-    sb.from("media_assets").select("storage_path, timeline_entry_id, timeline_entries!inner(obra_id)").eq("kind", "audio").eq("timeline_entries.obra_id", id).limit(100),
   ]);
+  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+
+  // Audios SOLO de las entries de esta página (media_assets no tiene obra_id → por timeline_entry).
+  const entryIds = (entries ?? []).map((e) => e.id);
+  const { data: audios } = entryIds.length
+    ? await sb.from("media_assets").select("storage_path, timeline_entry_id").eq("kind", "audio").in("timeline_entry_id", entryIds)
+    : { data: [] as { storage_path: string; timeline_entry_id: string | null }[] };
 
   // entry_id → storage_path del audio, para mostrar el reproductor en su renglón del timeline.
   const audioByEntry = new Map<string, string>();
@@ -118,6 +133,7 @@ export default async function ObraDetailPage({ params }: { params: Promise<{ id:
             ))}
           </ul>
         )}
+        <Paginator page={page} totalPages={totalPages} makeHref={(p) => `/obras/${id}?page=${p}`} />
       </section>
     </div>
   );

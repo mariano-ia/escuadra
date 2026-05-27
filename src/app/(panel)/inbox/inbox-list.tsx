@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { ZoomImage } from "@/components/zoom-image";
 import { moveEntryAction } from "./actions";
+import { pageWindow, PAGE_SIZE } from "@/lib/ui/pagination";
 
 export type Entry = {
   id: string; type: string; body: string | null; occurred_at: string;
@@ -123,27 +124,62 @@ function Item({ e, obras }: { e: Entry; obras: Obra[] }) {
   );
 }
 
+function PageBtn({ active, disabled, onClick, children }: { active?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`min-w-9 h-9 px-2 grid place-items-center font-display text-sm border transition-colors disabled:opacity-40 disabled:pointer-events-none ${active ? "border-ink bg-ink text-bg" : "border-rule text-grey hover:border-ink hover:text-ink"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function InboxList({ entries, obras }: { entries: Entry[]; obras: Obra[] }) {
   const [filter, setFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const changeFilter = (f: string) => { setFilter(f); setPage(1); };
+
   const inboxCount = entries.filter((e) => e.is_inbox).length;
   const filtered = entries.filter((e) =>
     filter === "all" ? true : filter === "inbox" ? e.is_inbox : e.obra_id === filter,
   );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <Chip active={filter === "all"} onClick={() => setFilter("all")}>Todas</Chip>
-        <Chip active={filter === "inbox"} onClick={() => setFilter("inbox")}>
+        <Chip active={filter === "all"} onClick={() => changeFilter("all")}>Todas</Chip>
+        <Chip active={filter === "inbox"} onClick={() => changeFilter("inbox")}>
           Sin clasificar{inboxCount ? ` (${inboxCount})` : ""}
         </Chip>
-        <ObraSelect obras={obras} value={filter !== "all" && filter !== "inbox" ? filter : ""} onChange={setFilter} />
+        <ObraSelect obras={obras} value={filter !== "all" && filter !== "inbox" ? filter : ""} onChange={changeFilter} />
       </div>
       {filtered.length === 0 ? (
         <div className="border border-rule p-10 text-center text-grey">Nada por acá todavía.</div>
       ) : (
-        <ul className="space-y-2">
-          {filtered.map((e) => <Item key={e.id} e={e} obras={obras} />)}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {pageItems.map((e) => <Item key={e.id} e={e} obras={obras} />)}
+          </ul>
+          {totalPages > 1 && (
+            <nav className="flex items-center justify-center gap-1.5 mt-6" aria-label="Paginación">
+              <PageBtn disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>‹</PageBtn>
+              {pageWindow(safePage, totalPages).map((p, i) =>
+                p === "…" ? (
+                  <span key={`e${i}`} className="px-1 text-grey-light">…</span>
+                ) : (
+                  <PageBtn key={p} active={p === safePage} onClick={() => setPage(p as number)}>{p}</PageBtn>
+                ),
+              )}
+              <PageBtn disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>›</PageBtn>
+            </nav>
+          )}
+        </>
       )}
     </div>
   );

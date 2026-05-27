@@ -106,8 +106,11 @@ export default async function SettingsPage({
         </div>
       </Section>
 
-      <Section title="Equipo" soon>
-        <p className="text-grey text-sm">Invitá a tus socios y asistentes para compartir las obras del estudio.</p>
+      <Section title="Equipo">
+        <p className="text-grey text-sm mb-3">Invitá a tus socios y asistentes para compartir las obras del estudio.</p>
+        <a href="/equipo" className="inline-block bg-ink text-bg font-display text-xs tracking-[0.12em] uppercase px-4 py-2.5">
+          Gestionar equipo
+        </a>
       </Section>
 
       <Section title="Integraciones" soon={!driveOn}>
