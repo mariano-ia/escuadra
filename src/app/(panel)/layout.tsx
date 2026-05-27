@@ -12,11 +12,7 @@ async function signOut() {
   redirect("/login");
 }
 
-const NAV = [
-  { href: "/inbox", label: "Inbox" },
-  { href: "/obras", label: "Obras" },
-  { href: "/equipo", label: "Equipo" },
-];
+// La nav se arma dentro del componente para incluir el contador de "sin clasificar".
 
 const GREETINGS = [
   "¿Qué se construye hoy?",
@@ -45,6 +41,19 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const first = (prof?.full_name ?? "").trim().split(/\s+/)[0] || "";
   const msg = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
 
+  // Contador de "sin clasificar" (entradas en la obra Inbox) para el badge de la nav.
+  const { data: inboxObra } = await sb.from("obras").select("id").eq("studio_id", ctx.studio.id).eq("is_inbox", true).maybeSingle();
+  let inboxCount = 0;
+  if (inboxObra?.id) {
+    const { count } = await sb.from("timeline_entries").select("id", { count: "exact", head: true }).eq("obra_id", inboxObra.id);
+    inboxCount = count ?? 0;
+  }
+  const nav = [
+    { href: "/inbox", label: "Inbox", badge: inboxCount },
+    { href: "/obras", label: "Obras" },
+    { href: "/equipo", label: "Equipo" },
+  ];
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Barra de navegación (sola) */}
@@ -60,7 +69,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
               </svg>
               <span className="font-display font-semibold tracking-[0.28em] uppercase text-sm hidden sm:inline">Escuadra</span>
             </Link>
-            <NavLinks items={NAV} />
+            <NavLinks items={nav} />
           </div>
           <div className="flex items-center gap-1">
             <div className="relative group">

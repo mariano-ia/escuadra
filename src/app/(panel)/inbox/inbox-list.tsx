@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { ZoomImage } from "@/components/zoom-image";
-import { moveEntryAction } from "./actions";
+import { moveEntryAction, moveManyAction } from "./actions";
 import { pageWindow, PAGE_SIZE } from "@/lib/ui/pagination";
 
 export type Entry = {
@@ -78,13 +78,39 @@ function ObraSelect({ obras, value, onChange }: { obras: Obra[]; value: string; 
   );
 }
 
-function Item({ e, obras }: { e: Entry; obras: Obra[] }) {
+/** Chips de obra para asignar en un toque. */
+function ObraChips({ obras, onPick, disabled }: { obras: Obra[]; onPick: (id: string) => void; disabled?: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {obras.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          disabled={disabled}
+          onClick={() => onPick(o.id)}
+          className="font-display text-[0.62rem] tracking-[0.06em] uppercase px-2.5 py-1 border border-rule text-grey hover:border-ink hover:text-ink disabled:opacity-40 transition-colors"
+        >
+          {o.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Item({
+  e, obras, selected, onToggle, onMove, busy,
+}: {
+  e: Entry; obras: Obra[]; selected: boolean; onToggle: () => void; onMove: (entryId: string, obraId: string) => void; busy: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const body = e.body ?? "";
   const long = body.length > MAX;
   const text = open || !long ? body : body.slice(0, MAX) + "…";
   return (
-    <li className="border border-rule p-4 flex gap-4">
+    <li className={`border p-4 flex gap-4 ${selected ? "border-ink" : "border-rule"}`}>
+      {e.is_inbox && (
+        <input type="checkbox" checked={selected} onChange={onToggle} aria-label="Seleccionar" className="mt-1 shrink-0 w-4 h-4 accent-black" />
+      )}
       {e.photos.length > 0 && (
         <div className="flex gap-2 shrink-0">
           {e.photos.slice(0, 2).map((u, i) => (
@@ -110,14 +136,10 @@ function Item({ e, obras }: { e: Entry; obras: Obra[] }) {
           </button>
         )}
         {e.is_inbox && obras.length > 0 && (
-          <form action={moveEntryAction} className="mt-2 flex items-center gap-2">
-            <input type="hidden" name="entryId" value={e.id} />
-            <select name="obraId" defaultValue="" className="border border-rule bg-bg text-xs py-1.5 px-2 outline-none focus:border-ink">
-              <option value="" disabled>Mover a obra…</option>
-              {obras.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
-            <button className="bg-ink text-bg font-display text-xs tracking-wide px-3 py-1.5">Mover</button>
-          </form>
+          <div className="mt-3">
+            <p className="text-[0.58rem] tracking-[0.14em] uppercase text-grey-soft mb-1.5 font-display">Mover a</p>
+            <ObraChips obras={obras} disabled={busy} onPick={(obraId) => onMove(e.id, obraId)} />
+          </div>
         )}
       </div>
     </li>
@@ -138,9 +160,13 @@ function PageBtn({ active, disabled, onClick, children }: { active?: boolean; di
 }
 
 export function InboxList({ entries, obras }: { entries: Entry[]; obras: Obra[] }) {
-  const [filter, setFilter] = useState<string>("all");
+  // Arranca en "Sin clasificar" si hay algo para triar (la vista accionable).
+  const [filter, setFilter] = useState<string>(() => (entries.some((e) => e.is_inbox) ? "inbox" : "all"));
   const [page, setPage] = useState(1);
-  const changeFilter = (f: string) => { setFilter(f); setPage(1); };
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [busy, startTransition] = useTransition();
+
+  const changeFilter = (f: string) => { setFilter(f); setPage(1); setSel(new Set()); };
 
   const inboxCount = entries.filter((e) => e.is_inbox).length;
   const filtered = entries.filter((e) =>
@@ -149,6 +175,32 @@ export function InboxList({ entries, obras }: { entries: Entry[]; obras: Obra[] 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const toggle = (id: string) =>
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const moveOne = (entryId: string, obraId: string) =>
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("entryId", entryId);
+      fd.set("obraId", obraId);
+      await moveEntryAction(fd);
+      setSel((prev) => { const n = new Set(prev); n.delete(entryId); return n; });
+    });
+
+  const moveMany = (obraId: string) =>
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("obraId", obraId);
+      sel.forEach((id) => fd.append("entryId", id));
+      await moveManyAction(fd);
+      setSel(new Set());
+    });
 
   return (
     <div>
@@ -159,12 +211,29 @@ export function InboxList({ entries, obras }: { entries: Entry[]; obras: Obra[] 
         </Chip>
         <ObraSelect obras={obras} value={filter !== "all" && filter !== "inbox" ? filter : ""} onChange={changeFilter} />
       </div>
+
+      {/* Barra de asignación masiva */}
+      {sel.size > 0 && obras.length > 0 && (
+        <div className="sticky top-2 z-10 bg-bg border border-ink p-3 mb-3 flex items-center gap-3 flex-wrap shadow-sm">
+          <span className="font-display text-xs tracking-[0.1em] uppercase text-ink whitespace-nowrap">
+            {sel.size} seleccionada{sel.size > 1 ? "s" : ""}
+          </span>
+          <span className="text-xs text-grey">mover a</span>
+          <ObraChips obras={obras} disabled={busy} onPick={moveMany} />
+          <button onClick={() => setSel(new Set())} className="ml-auto text-xs text-grey hover:text-ink underline underline-offset-2">
+            Cancelar
+          </button>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div className="border border-rule p-10 text-center text-grey">Nada por acá todavía.</div>
       ) : (
         <>
           <ul className="space-y-2">
-            {pageItems.map((e) => <Item key={e.id} e={e} obras={obras} />)}
+            {pageItems.map((e) => (
+              <Item key={e.id} e={e} obras={obras} selected={sel.has(e.id)} onToggle={() => toggle(e.id)} onMove={moveOne} busy={busy} />
+            ))}
           </ul>
           {totalPages > 1 && (
             <nav className="flex items-center justify-center gap-1.5 mt-6" aria-label="Paginación">

@@ -15,7 +15,7 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
   const data = await getPublicReport(token);
   if (!data) notFound();
 
-  const urls = await signedUrls(data.photoPaths);
+  const urls = await signedUrls(data.photos.map((p) => p.path));
 
   // Vista (best-effort, deduplicada por ip+ua+día)
   const h = await headers();
@@ -51,11 +51,14 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
         </div>
       </header>
 
-      <div className="max-w-3xl mx-auto px-6 py-8 grid grid-cols-2 sm:grid-cols-3 gap-2">
-        {data.photoPaths.map((p) =>
-          urls[p] ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img key={p} src={urls[p]} alt="" className="w-full aspect-square object-cover border border-rule" />
+      <div className="max-w-3xl mx-auto px-6 py-8 grid grid-cols-2 sm:grid-cols-3 gap-x-2 gap-y-5">
+        {data.photos.map((p, i) =>
+          urls[p.path] ? (
+            <figure key={i} className="space-y-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={urls[p.path]} alt={p.caption ?? ""} className="w-full aspect-square object-cover border border-rule" />
+              {p.caption && <figcaption className="text-xs text-grey leading-snug">{p.caption}</figcaption>}
+            </figure>
           ) : null,
         )}
       </div>

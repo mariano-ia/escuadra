@@ -31,25 +31,35 @@ export default async function ObraDetailPage({
   if (!obra) notFound();
 
   const fromRow = (page - 1) * PAGE_SIZE;
-  const [{ data: entries, count }, { data: photos }] = await Promise.all([
+  const [{ data: entries, count }, { data: photos }, photoCountRes, quoteCountRes] = await Promise.all([
     sb.from("timeline_entries").select("id, type, body_text, occurred_at, needs_review", { count: "exact" }).eq("obra_id", id).order("occurred_at", { ascending: false }).range(fromRow, fromRow + PAGE_SIZE - 1),
     sb.from("photos").select("id, storage_path, caption, created_at").eq("obra_id", id).order("created_at", { ascending: false }).limit(60),
+    sb.from("photos").select("id", { count: "exact", head: true }).eq("obra_id", id),
+    sb.from("quotes").select("id", { count: "exact", head: true }).eq("obra_id", id),
   ]);
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+  const photoCount = photoCountRes.count ?? 0;
+  const quoteCount = quoteCountRes.count ?? 0;
 
-  // Audios SOLO de las entries de esta página (media_assets no tiene obra_id → por timeline_entry).
+  // Audios + fotos por entry (solo de esta página) para el timeline.
   const entryIds = (entries ?? []).map((e) => e.id);
   const { data: audios } = entryIds.length
     ? await sb.from("media_assets").select("storage_path, timeline_entry_id").eq("kind", "audio").in("timeline_entry_id", entryIds)
     : { data: [] as { storage_path: string; timeline_entry_id: string | null }[] };
+  const { data: entryPhotos } = entryIds.length
+    ? await sb.from("photos").select("storage_path, timeline_entry_id").in("timeline_entry_id", entryIds)
+    : { data: [] as { storage_path: string; timeline_entry_id: string | null }[] };
 
-  // entry_id → storage_path del audio, para mostrar el reproductor en su renglón del timeline.
   const audioByEntry = new Map<string, string>();
   for (const a of audios ?? []) if (a.timeline_entry_id) audioByEntry.set(a.timeline_entry_id, a.storage_path);
+  // primera foto por entry → miniatura en el renglón del timeline
+  const photoByEntry = new Map<string, string>();
+  for (const p of entryPhotos ?? []) if (p.timeline_entry_id && !photoByEntry.has(p.timeline_entry_id)) photoByEntry.set(p.timeline_entry_id, p.storage_path);
 
   const urls = await signedUrls([
     ...(photos ?? []).map((p) => p.storage_path),
     ...(audios ?? []).map((a) => a.storage_path),
+    ...(entryPhotos ?? []).map((p) => p.storage_path),
   ]);
 
   return (
@@ -57,12 +67,15 @@ export default async function ObraDetailPage({
       <Link href="/obras" className="font-display text-xs tracking-[0.16em] uppercase text-grey-soft hover:text-ink">
         ← Obras
       </Link>
-      <div className="flex items-end justify-between mt-3 mb-8">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mt-3 mb-8">
+        <div className="min-w-0">
           <h1 className="text-3xl">{obra.name}</h1>
           {obra.address && <p className="text-grey mt-1">{obra.address}</p>}
+          <p className="text-[0.7rem] text-grey-soft mt-2 font-display tracking-[0.08em] uppercase">
+            {photoCount} {photoCount === 1 ? "foto" : "fotos"} · {quoteCount} {quoteCount === 1 ? "cotización" : "cotizaciones"} · {count ?? 0} registros
+          </p>
         </div>
-        <div className="flex items-center gap-5">
+        <div className="flex items-center gap-5 shrink-0">
           {obra.client_name && (
             <span className="font-display text-xs tracking-[0.2em] uppercase text-grey-light">{obra.client_name}</span>
           )}
@@ -112,9 +125,12 @@ export default async function ObraDetailPage({
           <ul className="border-t border-rule-soft">
             {entries.map((e) => (
               <li key={e.id} className="flex items-start gap-4 py-3 border-b border-rule-soft">
-                <span className="font-display text-[0.62rem] tracking-[0.18em] uppercase text-grey-soft w-24 shrink-0 pt-0.5">
+                <span className="font-display text-[0.62rem] tracking-[0.18em] uppercase text-grey-soft w-20 sm:w-24 shrink-0 pt-0.5">
                   {TYPE_LABEL[e.type] ?? e.type}
                 </span>
+                {photoByEntry.get(e.id) && urls[photoByEntry.get(e.id)!] && (
+                  <ZoomImage src={urls[photoByEntry.get(e.id)!]} className="w-12 h-12 border border-rule shrink-0 hover:opacity-80" />
+                )}
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-ink">
                     {e.body_text || <span className="text-grey-soft">—</span>}

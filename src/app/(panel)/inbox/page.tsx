@@ -2,6 +2,7 @@ import { createServerClient } from "@/lib/db/supabase";
 import { signedUrls } from "@/lib/storage";
 import { InboxList, type Entry } from "./inbox-list";
 import { SearchClient } from "@/app/(panel)/buscar/search-client";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
 
 export default async function InboxPage() {
   const sb = await createServerClient();
@@ -15,6 +16,12 @@ export default async function InboxPage() {
     .order("occurred_at", { ascending: false })
     .limit(200);
   const { data: photos } = await sb.from("photos").select("storage_path, timeline_entry_id").limit(400);
+
+  // Estado de activación (para el onboarding de primer uso).
+  const { data: waLinks } = await sb.from("whatsapp_links").select("id").eq("status", "active").limit(1);
+  const whatsappLinked = (waLinks ?? []).length > 0;
+  const hasObras = realObras.length > 0;
+  const hasEntries = (entries ?? []).length > 0;
 
   const urls = await signedUrls((photos ?? []).map((p) => p.storage_path));
   const photosByEntry = new Map<string, string[]>();
@@ -38,10 +45,11 @@ export default async function InboxPage() {
 
   return (
     <div>
-      <h1 className="text-3xl mb-2">Mensajes</h1>
+      <h1 className="text-3xl mb-2">Inbox</h1>
       <p className="text-grey text-sm mb-6">
-        Todo lo que llegó por WhatsApp. Buscá, filtrá por obra, y asigná en un toque lo que quedó sin clasificar.
+        Todo lo que llegó por WhatsApp. Asigná en un toque lo que quedó sin clasificar, buscá y filtrá por obra.
       </p>
+      <OnboardingChecklist whatsappLinked={whatsappLinked} hasObras={hasObras} hasEntries={hasEntries} />
       <div className="mb-8 max-w-xl">
         <SearchClient autoFocus={false} />
       </div>

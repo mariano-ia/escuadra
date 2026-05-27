@@ -56,7 +56,7 @@ export type PublicReport = {
   obraName: string | null;
   studioName: string | null;
   studioLogoUrl: string | null;
-  photoPaths: string[];
+  photos: { path: string; caption: string | null }[];
 };
 
 export async function getPublicReport(token: string): Promise<PublicReport | null> {
@@ -71,15 +71,16 @@ export async function getPublicReport(token: string): Promise<PublicReport | nul
 
   const { data: rp } = await admin
     .from("report_photos")
-    .select("sort_order, photos(storage_path)")
+    .select("sort_order, photos(storage_path, caption)")
     .eq("report_id", report.id)
     .order("sort_order", { ascending: true });
 
   const obra = report.obras as { name: string } | null;
   const studio = report.studios as { name: string; logo_storage_path: string | null } | null;
-  const photoPaths = (rp ?? [])
-    .map((r) => (r.photos as { storage_path: string } | null)?.storage_path)
-    .filter((p): p is string => !!p);
+  const photos = (rp ?? [])
+    .map((r) => r.photos as { storage_path: string; caption: string | null } | null)
+    .filter((p): p is { storage_path: string; caption: string | null } => !!p)
+    .map((p) => ({ path: p.storage_path, caption: p.caption }));
   const studioLogoUrl = studio?.logo_storage_path
     ? await signedUrl(studio.logo_storage_path, 3600).catch(() => null)
     : null;
@@ -93,7 +94,7 @@ export async function getPublicReport(token: string): Promise<PublicReport | nul
     obraName: obra?.name ?? null,
     studioName: studio?.name ?? null,
     studioLogoUrl,
-    photoPaths,
+    photos,
   };
 }
 

@@ -14,3 +14,15 @@ export async function moveEntryAction(formData: FormData) {
   revalidatePath("/inbox");
   revalidatePath("/obras");
 }
+
+/** Asignación masiva: mueve varias entradas a una obra de una sola vez. */
+export async function moveManyAction(formData: FormData) {
+  const ctx = await getActiveStudio();
+  if (!ctx) return;
+  const obraId = String(formData.get("obraId") ?? "");
+  const entryIds = formData.getAll("entryId").map(String).filter(Boolean);
+  if (!obraId || entryIds.length === 0) return;
+  for (const entryId of entryIds) await moveEntryToObra({ studioId: ctx.studio.id, entryId, obraId });
+  revalidatePath("/inbox");
+  revalidatePath("/obras");
+}
