@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import type { Metadata } from "next";
 import { getPublicReport, trackView } from "@/lib/reports";
 import { signedUrls } from "@/lib/storage";
+import { ZoomImage } from "@/components/zoom-image";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -55,8 +56,7 @@ export default async function PublicReportPage({ params }: { params: Promise<{ t
         {data.photos.map((p, i) =>
           urls[p.path] ? (
             <figure key={i} className="space-y-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={urls[p.path]} alt={p.caption ?? ""} className="w-full aspect-square object-cover border border-rule" />
+              <ZoomImage src={urls[p.path]} alt={p.caption ?? ""} className="w-full aspect-square border border-rule" />
               {p.caption && <figcaption className="text-xs text-grey leading-snug">{p.caption}</figcaption>}
             </figure>
           ) : null,
