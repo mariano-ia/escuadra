@@ -6,7 +6,7 @@ import { uploadMedia } from "@/lib/storage";
 import { transcribeAudio } from "@/lib/whisper/transcribe";
 import { classifyMessage, type Classification, type Filing } from "@/lib/claude/classify";
 import { finishJob, finishJobs, pendingInboundsForSender, claimJobs } from "@/lib/jobs/queue";
-import { resolveRouting, parseObraCommand, isBareSaveLeadIn } from "@/lib/ingest/route";
+import { resolveRouting, parseObraCommand, isBareSaveLeadIn, isClarifAnswer } from "@/lib/ingest/route";
 import { combineBodies } from "@/lib/ingest/grouping";
 import { moveEntryToObra } from "@/lib/db/repos";
 import { driveConfigured, syncPendingPhotos } from "@/lib/cloud/gdrive";
@@ -170,24 +170,21 @@ export async function processInbound(opts: { jobId: string; inboundId: string; g
   const noMedia = parseInt(raw.NumMedia ?? "0", 10) === 0;
 
   // --- ¿Este mensaje responde una aclaración abierta? (resolverla; no asumir) ---
+  // CONSERVADOR: solo se trata como respuesta si parece una respuesta CORTA (número o
+  // nombre, no una oración que casualmente contenga el nombre). Y solo si la aclaración
+  // NO está vencida (antes vencidas atrapaban mensajes nuevos del día siguiente).
   if (body && noMedia) {
     const { data: clar } = await admin
       .from("pending_clarifications")
       .select("*").eq("studio_id", studioId).eq("user_id", userId).eq("status", "open")
+      .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (clar) {
       const options = (clar.options as string[] | null) ?? [];
       const { data: obras } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
-      let chosen: { id: string; name: string } | undefined;
-      const num = body.match(/^\s*(\d+)\s*$/);
-      if (num) {
-        const optName = options[parseInt(num[1], 10) - 1];
-        if (optName) chosen = (obras ?? []).find((o) => o.name.toLowerCase() === optName.toLowerCase());
-      }
-      if (!chosen) {
-        const q = body.toLowerCase();
-        chosen = (obras ?? []).find((o) => q.includes(o.name.toLowerCase()) || o.name.toLowerCase().includes(q));
-      }
+      const obraNames = (obras ?? []).map((o) => o.name);
+      const matchedName = isClarifAnswer(body, [...options, ...obraNames]);
+      const chosen = matchedName ? (obras ?? []).find((o) => o.name.toLowerCase() === matchedName.toLowerCase()) : undefined;
       if (chosen) {
         // Mover TODA la ráfaga reciente sin clasificar del usuario (no solo un mensaje):
         // si la ráfaga quedó partida en varias entries en el Inbox, se mueven todas juntas.

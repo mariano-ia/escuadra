@@ -82,6 +82,53 @@ export function parseObraCommand(body: string): string | null {
 }
 
 /**
+ * ¿El body parece una RESPUESTA corta a una aclaración ("¿de qué obra es esto?") sobre un
+ * conjunto de nombres conocidos? Devuelve el nombre matcheado o null. **Conservador a propósito:**
+ * una oración larga que casualmente contenga un nombre de obra (ej. "avisarle a Mari que el
+ * electricista de casa tincho no viene") NO es respuesta y debe procesarse como contenido nuevo.
+ * Acepta: número aislado ("1", "2)"), nombre limpio ("Casa Tincho"), nombre con muletilla
+ * inicial ("es Casa Tincho", "la de Tincho"), o el último token del nombre ("tincho" → "Casa Tincho").
+ */
+export function isClarifAnswer(body: string, names: string[]): string | null {
+  const t = body.trim();
+  if (!t) return null;
+  const num = t.match(/^\s*(\d+)\s*[.)\-]?\s*$/);
+  if (num) {
+    const i = parseInt(num[1], 10) - 1;
+    return names[i] ?? null;
+  }
+  // sentencias largas no son respuestas a una pregunta de opciones
+  const words = t.split(/\s+/).filter(Boolean);
+  if (t.length > 30 || words.length > 4) return null;
+
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  // OJO al orden: "la de Tincho" tiene que comer "la de " ANTES que sólo "la ".
+  const q = norm(t)
+    .replace(/^(la|el)\s+de\s+/, "")
+    .replace(/^(es|la|el|son|fue|dale|si|claro|bueno)\s+/, "")
+    .trim();
+  if (!q) return null;
+
+  return (
+    names.find((n) => {
+      const nn = norm(n);
+      if (nn === q) return true;
+      const tokens = nn.split(" ");
+      if (tokens.length > 1 && tokens[tokens.length - 1] === q) return true;
+      return false;
+    }) ?? null
+  );
+}
+
+/**
  * "Guardá esto" SIN contenido: el usuario pide guardar/mirar algo pero el mensaje no trae
  * ningún dato sustantivo (el adjunto se chequea aparte). Ej: "guardá esto", "che mirá esto que
  * es importante", "te mando algo". → acuse-invitación, no se crea entrada vacía.

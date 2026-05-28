@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Classification } from "@/lib/claude/classify";
-import { resolveRouting, parseObraCommand, isBareSaveLeadIn, type RoutingState } from "./route";
+import { resolveRouting, parseObraCommand, isBareSaveLeadIn, isClarifAnswer, type RoutingState } from "./route";
 
 function cls(over: { obra_id?: string | null; conf?: number; needs?: boolean }): Classification {
   return {
@@ -109,5 +109,40 @@ describe("isBareSaveLeadIn (guardá esto sin contenido)", () => {
     expect(isBareSaveLeadIn("colocaron las ventanas del piso 2")).toBe(false);
     expect(isBareSaveLeadIn("obra belgrano")).toBe(false);
     expect(isBareSaveLeadIn("aprobado el presupuesto de pintura en Núñez")).toBe(false);
+  });
+});
+
+describe("isClarifAnswer (¿esto es respuesta corta a la aclaración?)", () => {
+  const NAMES = ["Casa Tincho", "Casa Belgrano"];
+
+  it("acepta número aislado y mapea por posición", () => {
+    expect(isClarifAnswer("1", NAMES)).toBe("Casa Tincho");
+    expect(isClarifAnswer("2", NAMES)).toBe("Casa Belgrano");
+    expect(isClarifAnswer("2)", NAMES)).toBe("Casa Belgrano");
+    expect(isClarifAnswer("3", NAMES)).toBeNull(); // fuera de rango
+  });
+
+  it("acepta el nombre exacto (con/sin acento, case-insensitive)", () => {
+    expect(isClarifAnswer("Casa Tincho", NAMES)).toBe("Casa Tincho");
+    expect(isClarifAnswer("casa tincho", NAMES)).toBe("Casa Tincho");
+    expect(isClarifAnswer("CASA BELGRANO", NAMES)).toBe("Casa Belgrano");
+  });
+
+  it("acepta muletillas iniciales típicas y el último token", () => {
+    expect(isClarifAnswer("es Casa Tincho", NAMES)).toBe("Casa Tincho");
+    expect(isClarifAnswer("la de Tincho", NAMES)).toBe("Casa Tincho");
+    expect(isClarifAnswer("tincho", NAMES)).toBe("Casa Tincho");
+  });
+
+  it("RECHAZA oraciones largas que contienen un nombre (BUG real reportado)", () => {
+    // Esta frase metía 'casa tincho' por substring y se trataba como respuesta:
+    expect(isClarifAnswer("Avisarle a Mari que el electricista de casa tincho no viene", NAMES)).toBeNull();
+    expect(isClarifAnswer("La cotización de plomería de Casa Tincho llegó alta", NAMES)).toBeNull();
+  });
+
+  it("rechaza vacíos y bodies sin relación", () => {
+    expect(isClarifAnswer("", NAMES)).toBeNull();
+    expect(isClarifAnswer("gracias", NAMES)).toBeNull();
+    expect(isClarifAnswer("Casa Palermo", NAMES)).toBeNull(); // no está en NAMES
   });
 });
