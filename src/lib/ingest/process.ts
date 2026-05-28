@@ -6,9 +6,8 @@ import { uploadMedia } from "@/lib/storage";
 import { transcribeAudio } from "@/lib/whisper/transcribe";
 import { classifyMessage, type Classification, type Filing } from "@/lib/claude/classify";
 import { finishJob, finishJobs, pendingInboundsForSender, claimJobs } from "@/lib/jobs/queue";
-import { resolveRouting, parseObraCommand, isBareSaveLeadIn, isClarifAnswer } from "@/lib/ingest/route";
+import { resolveRouting, parseObraCommand } from "@/lib/ingest/route";
 import { combineBodies } from "@/lib/ingest/grouping";
-import { moveEntryToObra } from "@/lib/db/repos";
 import { driveConfigured, syncPendingPhotos } from "@/lib/cloud/gdrive";
 import type { Json } from "@/lib/db/types";
 
@@ -149,9 +148,12 @@ function countPhrase(stored: Stored[]): string {
   return parts.join(" y ") || "lo que mandaste";
 }
 
-/** Procesa un mensaje entrante: descarga media, transcribe, clasifica, archiva y confirma.
- *  Con groupWindow=true (lo llama el webhook tras la ventana), junta la ráfaga del remitente
- *  en UN avance con UN acuse. El cron lo llama sin groupWindow (backstop, mensaje suelto). */
+/** Procesa un mensaje entrante. UNA sola responsabilidad: identificar la obra y archivar.
+ *  CERO charla extra: nada de "andá al panel", nada de "responde 1/2/3", nada de "moví lo
+ *  último a X". Si no se puede identificar la obra → Inbox. Si no hay contenido para archivar
+ *  (pregunta, instrucción, ruido) → no responde, no guarda basura. La confirmación SOLO se
+ *  manda DESPUÉS de que la entry está realmente en la base — si fileEntry tira, el job se
+ *  reintenta y nunca se manda un "✓ guardé" mentiroso. */
 export async function processInbound(opts: { jobId: string; inboundId: string; groupWindow?: boolean }): Promise<void> {
   const admin = createAdminClient();
   const { data: inbound } = await admin.from("inbound_messages").select("*").eq("id", opts.inboundId).single();
@@ -169,53 +171,9 @@ export async function processInbound(opts: { jobId: string; inboundId: string; g
 
   const noMedia = parseInt(raw.NumMedia ?? "0", 10) === 0;
 
-  // --- ¿Este mensaje responde una aclaración abierta? (resolverla; no asumir) ---
-  // CONSERVADOR: solo se trata como respuesta si parece una respuesta CORTA (número o
-  // nombre, no una oración que casualmente contenga el nombre). Y solo si la aclaración
-  // NO está vencida (antes vencidas atrapaban mensajes nuevos del día siguiente).
-  if (body && noMedia) {
-    const { data: clar } = await admin
-      .from("pending_clarifications")
-      .select("*").eq("studio_id", studioId).eq("user_id", userId).eq("status", "open")
-      .gt("expires_at", new Date().toISOString())
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (clar) {
-      const options = (clar.options as string[] | null) ?? [];
-      const { data: obras } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
-      const obraNames = (obras ?? []).map((o) => o.name);
-      const matchedName = isClarifAnswer(body, [...options, ...obraNames]);
-      const chosen = matchedName ? (obras ?? []).find((o) => o.name.toLowerCase() === matchedName.toLowerCase()) : undefined;
-      if (chosen) {
-        // Mover TODA la ráfaga reciente sin clasificar del usuario (no solo un mensaje):
-        // si la ráfaga quedó partida en varias entries en el Inbox, se mueven todas juntas.
-        const ids = new Set<string>();
-        const { data: inboxRow } = await admin.from("obras").select("id").eq("studio_id", studioId).eq("is_inbox", true).maybeSingle();
-        if (inboxRow?.id) {
-          const { data: recent } = await admin
-            .from("timeline_entries").select("id")
-            .eq("studio_id", studioId).eq("created_by_user_id", userId).eq("obra_id", inboxRow.id)
-            .gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
-          for (const e of recent ?? []) ids.add(e.id);
-        }
-        const pe = (clar.partial_extraction as { inbound_id?: string }) ?? {};
-        if (pe.inbound_id) {
-          const { data: ents } = await admin.from("timeline_entries").select("id").eq("inbound_message_id", pe.inbound_id).eq("studio_id", studioId);
-          for (const e of ents ?? []) ids.add(e.id);
-        }
-        for (const id of ids) await moveEntryToObra({ studioId, entryId: id, obraId: chosen.id });
-        const movedN = ids.size;
-        await admin.from("pending_clarifications").update({ status: "resolved" }).eq("id", clar.id);
-        await setActiveObra(studioId, userId, chosen.id);
-        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, ${movedN > 1 ? `moví las ${movedN} a` : "lo moví a"} ${chosen.name}. Ahora trabajás en esa obra.`);
-        await logEvent(studioId, userId, "clarification_resolved", { obra_id: chosen.id });
-        await finishJob(opts.jobId, "done");
-        return;
-      }
-      // si no parece una respuesta, seguimos: se procesa como contenido nuevo
-    }
-  }
-
-  // --- Comando: fijar obra activa ("obra X" o el nombre exacto de una obra a secas) ---
+  // --- Único atajo de "no-contenido": fijar obra activa explícitamente ("obra X" o el nombre
+  //     exacto a secas). Setea estado, NO archiva, la confirmación describe un estado real
+  //     (no es un "✓ guardé" mentiroso). Las correcciones, preguntas y reordenes son en la web.
   if (noMedia && body) {
     const cmdQuery = parseObraCommand(body);
     const q = (cmdQuery ?? body).trim().toLowerCase();
@@ -230,15 +188,6 @@ export async function processInbound(opts: { jobId: string; inboundId: string; g
       await finishJob(opts.jobId, "done");
       return;
     }
-  }
-
-  // --- "Guardá esto" sin contenido: acuse-invitación cálido, NO crea entrada vacía ---
-  // (el contenido suele venir en el próximo mensaje; si no llega, no quedó basura).
-  if (parseInt(raw.NumMedia ?? "0", 10) === 0 && isBareSaveLeadIn(body)) {
-    await sendWhatsApp(from, `Dale${name ? `, ${name}` : ""} 👍 mandámelo y lo guardo.`);
-    await logEvent(studioId, userId, "save_leadin_invite", {});
-    await finishJob(opts.jobId, "done");
-    return;
   }
 
   // --- Agrupación de la ráfaga (ventana de avance) ---
@@ -306,57 +255,12 @@ export async function processInbound(opts: { jobId: string; inboundId: string; g
     };
   }
 
-  // --- Intención que se resuelve en el panel, no en el chat (informe, consulta, corrección).
-  // En esta etapa el chat solo captura; informes/búsqueda/correcciones finas viven en la web.
-  // SOLO aplica a texto puro: cualquier media SIEMPRE se archiva (nunca se pierde un mensaje).
-  // Corrección que reasigna a una obra ("asigná/mové lo último a la obra X") → INTERPRETAR:
-  // mover la última entry reciente a esa obra, en vez de guardar la frase literal.
-  if (numMedia === 0 && cls.intent === "correccion") {
-    const { data: obras2 } = await admin.from("obras").select("id,name").eq("studio_id", studioId).eq("is_inbox", false);
-    const b = body.toLowerCase();
-    const target = (obras2 ?? []).find((o) => {
-      const n = o.name.toLowerCase();
-      return b.includes(n) || n.split(/\s+/).some((w) => w.length > 3 && b.includes(w));
-    });
-    if (target) {
-      const { data: last } = await admin
-        .from("timeline_entries")
-        .select("id, obra_id")
-        .eq("studio_id", studioId)
-        .eq("created_by_user_id", userId)
-        .gte("created_at", new Date(Date.now() - 30 * 60 * 1000).toISOString())
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (last && last.obra_id !== target.id) {
-        await moveEntryToObra({ studioId, entryId: last.id, obraId: target.id });
-        await setActiveObra(studioId, userId, target.id);
-        await sendWhatsApp(from, `✓ Listo${name ? `, ${name}` : ""}, moví lo último a ${target.name}. Ahora trabajás en esa obra.`);
-        await logEvent(studioId, userId, "correction_move", { obra_id: target.id });
-        await finishJob(opts.jobId, "done");
-        return;
-      }
-    }
-  }
-
-  if (numMedia === 0 && (cls.intent === "consultar" || cls.intent === "comando" || cls.intent === "correccion")) {
-    const base = process.env.APP_BASE_URL?.replace(/\/$/, "");
-    const dest = base ? `👉 ${base}/obras` : "el panel";
-    const hi = name ? `${name}, ` : "";
-    let reply: string;
-    if (cls.intent === "consultar") {
-      reply = `${hi}eso lo buscás y lo ves en ${dest}.`;
-    } else if (cls.intent === "correccion") {
-      reply = `${hi}para corregir o deshacer algo ya guardado, entrá a ${dest}.`;
-    } else {
-      const wantsReport = /informe|reporte|link.*(cliente|avance)/i.test(body);
-      reply = wantsReport
-        ? `${hi}los informes los armás desde el panel, quedan más prolijos ${dest}.`
-        : `${hi}eso lo hacés desde ${dest}.`;
-    }
-    await sendWhatsApp(from, reply);
-    await logEvent(studioId, userId, "redirected_to_panel", { intent: cls.intent });
-    await finishJob(opts.jobId, "done");
+  // El chat SOLO captura contenido. Preguntas, instrucciones, ruido o correcciones por TEXTO
+  // no se archivan ni se contestan: se resuelven en la web (no inventamos respuestas, no
+  // movemos entries, no escribimos notas basura). Si hay media, SIEMPRE se archiva (no se
+  // pierde un archivo enviado, sin importar lo que diga el caption).
+  if (stored.length === 0 && cls.intent !== "archivar") {
+    await finishJobs(burstJobIds, "done");
     return;
   }
 
@@ -378,34 +282,28 @@ export async function processInbound(opts: { jobId: string; inboundId: string; g
     inboxObraId: inboxObra?.id ?? null,
     textMatchedObraId,
   });
+  // Si no se puede identificar obra (action="ask" o sin target), va al Inbox SIN preguntar.
+  // El chat captura; el orden fino se hace en el panel.
+  const obraId = decision.targetObraId ?? inboxObra?.id ?? null;
+  if (!obraId) { await finishJobs(burstJobIds, "done"); return; }
   const confident = decision.confident;
 
-  // funnel: aclaración
-  if (decision.action === "ask") {
-    const options = cls.clarification_options?.length ? cls.clarification_options : realObras.slice(0, 3).map((o) => o.name);
-    await admin.from("pending_clarifications").insert({
-      studio_id: studioId, user_id: userId,
-      question: cls.clarification_question ?? "¿De qué obra es esto?",
-      options, candidate_obras: realObras.slice(0, 4) as unknown as Json,
-      partial_extraction: { inbound_id: opts.inboundId } as Json,
-      expires_at: new Date(Date.now() + 6 * 3600 * 1000).toISOString(),
-    });
-    if (inboxObra) await fileEntry({ studioId, obraId: inboxObra.id, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? 0, needsReview: true });
-    const numbered = options.map((o, i) => `${i + 1} ${o}`).join(" · ");
-    const ask = stored.length > 1 ? `¿dónde van estas ${countPhrase(stored)}?` : "¿de qué obra es esto?";
-    await sendWhatsApp(from, `${name ? name + ", " : ""}${ask} ${numbered}${options.length ? " · " : ""}o queda en tu Inbox.`);
-    await logEvent(studioId, userId, "clarification_asked", {});
-    await finishJobs(burstJobIds, "awaiting_reply");
-    return;
-  }
-
-  const obraId = decision.targetObraId;
-  if (!obraId) { await finishJobs(burstJobIds, "done"); return; }
-  await fileEntry({ studioId, obraId, userId, inboundId: opts.inboundId, filing: primary, body, transcript, stored, confidence: primary?.obra_confidence ?? (confident ? 0.9 : 0.3), needsReview: decision.needsReview });
+  // ⬇⬇ INVARIANTE: la confirmación de WhatsApp va DESPUÉS de que la entry esté en la base.
+  // fileEntry lanza si el insert falla → la confirmación nunca se manda, el job se reintenta.
+  // Nunca un "✓ guardé" sin un guardado real.
+  await fileEntry({
+    studioId, obraId, userId, inboundId: opts.inboundId, filing: primary,
+    body, transcript, stored,
+    confidence: primary?.obra_confidence ?? (confident ? 0.9 : 0.3),
+    needsReview: decision.needsReview,
+  });
   if (decision.setsActiveObra) await setActiveObra(studioId, userId, decision.setsActiveObra);
 
   const obraName = realObras.find((o) => o.id === obraId)?.name ?? "tu Inbox";
-  await sendWhatsApp(from, `Listo${name ? `, ${name}` : ""} 👌 guardé ${countPhrase(stored)} en ${obraName}.${!confident ? " Lo dejé sin obra fija; cuando puedas lo ordenás desde el panel 🙂" : ""}`);
+  await sendWhatsApp(
+    from,
+    `Listo${name ? `, ${name}` : ""} 👌 guardé ${countPhrase(stored)} en ${obraName}.${!confident ? " Cuando puedas, ordenalo desde el panel 🙂" : ""}`,
+  );
   await logEvent(studioId, userId, "filed", { obra_id: obraId, confident });
 
   // Backup en Google Drive (opt-in por estudio). Best-effort: nunca rompe el archivado.
